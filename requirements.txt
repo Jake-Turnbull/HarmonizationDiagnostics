@@ -1,0 +1,7 @@
+numpy % No version requirement
+pandas % No version requirement
+scipy % No version requirement
+statsmodels % No version requirement
+matplotlib % No version requirement
+seaborn % No version requirement
+scikit-learn % No version requirement

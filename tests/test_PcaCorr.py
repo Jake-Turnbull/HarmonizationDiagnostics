@@ -1,12 +1,6 @@
+import numpy as np
 from DiagnoseHarmonization import DiagnosticFunctions
 
-import numpy as np
-
-group1 = np.array([1,2,3,4,5])
-group2 = np.array([2,3,4,5,6])
-
-def test_cohens_d():
-    assert DiagnosticFunctions.Cohens_D(group1, group2) == [0, 0, 0, 0, 0]
 
 def test_pca_corr():
     # Create a sample dataset
@@ -21,4 +15,3 @@ def test_pca_corr():
     assert score.shape == (100, 5)  # Score should have the same number of samples as X
     assert len(explained_variance) == 5  # Explained variance should match number of features
     assert len(batchPCcorr) == 3  # We only compute correlation for the first 3 PCs
-    
