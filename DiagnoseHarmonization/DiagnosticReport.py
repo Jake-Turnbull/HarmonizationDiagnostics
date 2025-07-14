@@ -12,8 +12,6 @@ import pandas as pd
 import os
 from datetime import datetime
 
-
-
 def FullReport(data: np.ndarray, batch, log_path: str = None):
     import numpy as np
     import pandas as pd
