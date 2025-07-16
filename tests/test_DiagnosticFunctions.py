@@ -11,16 +11,20 @@ def test_cohens_d():
 def test_pca_corr():
     # Create a sample dataset
     np.random.seed(0)
-    X = np.random.rand(100, 5)  # 100 samples, 3 features
+    X = np.random.rand(100, 5)  # 100 samples, 5 features
     batch = np.random.rand(100)  # Batch variable
 
     # Call the PCA correlation function
-    pearsonr, explained_variance, score, batchPCcorr = DiagnosticFunctions.PcaCorr(X, batch)
+    explained_variance, score, batchPCcorr = DiagnosticFunctions.PcaCorr(X, batch)
 
     # Check the shape of the results
     assert score.shape == (100, 3)  # Score should have the same number of samples as X
     assert len(explained_variance) == 3  # Explained variance should match number of features
-    assert len(batchPCcorr) == 3  # We only compute correlation for the first 3 PCs
+
+    # Validate that each variable has 3 correlation values (one per PC)
+    for var_stats in batchPCcorr.values():
+        assert len(var_stats['correlation']) == 3
+        assert len(var_stats['p_value']) == 3
 
 
 def test_mahalanobis_distance():

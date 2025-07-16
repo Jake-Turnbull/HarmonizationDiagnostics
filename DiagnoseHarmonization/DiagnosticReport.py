@@ -88,12 +88,13 @@ def FullReport(data: np.ndarray, batch, log_path: str = None):
     logging.info(log_start)
 
     logging.info("Loading diagnostic functions from DiagnoseHarmonization module" \
-    "----------------------------------------------------------------------------")
+    "---------------------------------------------------------------------------------------------------------")
     # Import diagnostic functions
     from DiagnoseHarmonization import DiagnosticFunctions
     # Perform diagnostics
 
-    logging.info("Successfully loaded diagnostic functions from DiagnoseHarmonization module")
+    logging.info("Successfully loaded diagnostic functions from DiagnoseHarmonization module"\
+    "---------------------------------------------------------------------------------------------------------")
 
     logging.info("Performing Cohen's d calculation.")
     cohens_d = DiagnosticFunctions.Cohens_D(data, data)  # Using data
@@ -107,9 +108,10 @@ def FullReport(data: np.ndarray, batch, log_path: str = None):
     f"average Cohen's d for across features is : {np.mean(cohens_d)}" \
     f" with a variance of {np.var(cohens_d)}")
 
-    logging.info("Performing PCA correlation.")
+    logging.info("Performing PCA and correlations of batch and covariates with PC's.")
 
     pearsonr, explained_variance, score, batchPCcorr = DiagnosticFunctions.PcaCorr(data, batch)
+    
     logging.info("PCA correlation completed.")
     logging.info(f"Pearson correlation of batch with first 3 Principal components results: {batchPCcorr}")
     logging.info(f"Explained variance for each PC: {explained_variance}")

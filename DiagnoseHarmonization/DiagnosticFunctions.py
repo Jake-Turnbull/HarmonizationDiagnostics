@@ -6,7 +6,16 @@ from scipy.stats import pearsonr
 # ------------------ Diagnostic Functions ------------------
 # Cohens D function calculates the effect size between two groups for each feature.
 def Cohens_D(Data1, Data2):
-    """Calculate Cohen's d for each feature between two groups."""
+    """Calculate Cohen's d for each feature between two groups.
+    
+    Parameters:
+        Data1 (np.ndarray): First group data (features x samples).
+        Data2 (np.ndarray): Second group data (features x samples).     
+    Returns:
+        list: Cohen's d values for each feature.
+    Raises:
+        ValueError: If Data1 and Data2 do not have the same number of features.
+    """
     n_features = len(Data1)
     d = [0] * n_features
     for f in range(n_features):
@@ -19,23 +28,70 @@ def Cohens_D(Data1, Data2):
     return d
 
 # PcaCorr performs PCA on data and computes Pearson correlation of the top N principal components with a batch variable.
-def PcaCorr(Data, batch, N_components=3):
-    """Perform PCA and correlate top PCs with batch labels."""
+import numpy as np
+from sklearn.decomposition import PCA
+from scipy.stats import pearsonr
 
+def PcaCorr(Data, batch, N_components=None, covariates=None, variable_names=None):
+    """
+    Perform PCA and correlate top PCs with batch and optional covariates.
+
+    Parameters:
+    - Data: subjects x features (np.ndarray)
+    - batch: subjects x 1 (np.ndarray), batch labels
+    - N_components:  int, optional, number of principal components to analyze (default is 3)
+    - covariates:  subjects x covariates (np.ndarray), optional, additional variables to correlate with PCs
+    - variable_names: list of str, optional, names for the variables (default is None, will generate default names)
+
+    Returns:
+    - explained_variance: percentage of variance explained by each principal component
+    - score: PCA scores (subjects x N_components)
+    - PC_correlations:  dictionary with Pearson correlations of each PC with the batch and covariates
+
+    Raises:
+    - ValueError: if Data is not a 2D array or batch is not a
+    1D array, or if the number of samples in Data and batch do not match.
+    - ValueError: if covariates is not None and not a 2D array
+    - ValueError: if variable_names is not None and does not match the number of variables
+    """
+
+    if N_components is None:
+        N_components = 4
+
+    # Run PCA
     pca = PCA(n_components=N_components)
     score = pca.fit_transform(Data)
     explained_variance = pca.explained_variance_ratio_ * 100
-    batch = batch.astype(float)
-    batchPCcorr = np.array([
-        pearsonr(score[:, i], batch)[0]
-        for i in range(min(N_components, score.shape[1]))
-    ])
-    return pearsonr, explained_variance, score, batchPCcorr
+
+    # Combine batch and covariates
+    variables = [batch.astype(float)]
+    if covariates is not None:
+        variables.extend([covariates[:, i].astype(float) for i in range(covariates.shape[1])])
+
+    # Generate default variable names if not provided
+    if variable_names is None:
+        variable_names = ['batch'] + [f'covariate {i+1}' for i in range(len(variables) - 1)]
+
+    # Compute correlations
+    PC_correlations = {}
+    for name, var in zip(variable_names, variables):
+        corrs = []
+        pvals = []
+        for i in range(min(N_components, score.shape[1])):
+            corr, pval = pearsonr(score[:, i], var)
+            corrs.append(corr)
+            pvals.append(pval)
+        PC_correlations[name] = {
+            'correlation': np.array(corrs),
+            'p_value': np.array(pvals)
+        }
+        return explained_variance, score, PC_correlations
+
 
 
 def MahalanobisDistance(Data=None, batch=None, Cov=None,covariates=None):
     """Calculate Mahalanobis distance between pairs of batches in the data
-    Args:
+    Parameters:
         Data (np.ndarray): Data matrix where rows are samples and columns are features.
         
         batch (np.ndarray): Batch labels for each sample.
@@ -82,17 +138,6 @@ def MahalanobisDistance(Data=None, batch=None, Cov=None,covariates=None):
             distance = np.sqrt(np.dot(np.dot(diff, inv_Cov), diff.T))
             mahalanobis_distance[(b1, b2)] = distance
     return mahalanobis_distance
-
-
-
-
-
-
-
-
-
-
-
 
 # ------------------ CLI Help Only Setup ------------------
 
