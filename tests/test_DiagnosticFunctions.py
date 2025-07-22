@@ -1,9 +1,17 @@
-from DiagnoseHarmonization import DiagnosticFunctions
+import pandas as pd
+from DiagnoseHarmonization.DiagnosticFunctions import run_lme_diagnostics
 
-group1 = np.array([1,2,3,4,5])
-group2 = np.array([2,3,4,5,6])
+all_data = pd.read_csv('/Users/psyc1586_admin/GVB_data/harmonisation_work/python_codes/allData.csv')
+print(all_data)
 
-
-
-def test_cohens_d():
-    assert DiagnosticFunctions.Cohens_D(group1, group2) == [0, 0, 0, 0, 0]
+# Assuming all_data is dataframe
+model_results = DiagnosticFunctions.run_lme_diagnostics(
+    data=all_data,
+    start_col=7,
+    age_col='age',
+    batch_col='batch',
+    time_col='timepoint', 
+    random_effect='subjectID'
+)
+print(model_results)
+model_results.to_csv("lme_diagnostics_results.csv", index=False)
