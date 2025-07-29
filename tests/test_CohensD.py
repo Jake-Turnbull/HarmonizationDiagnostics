@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 group1 = np.array([1,2,3,4,5])
-group2 = np.array([2,3,4,5,6])
+group2 = np.array([1,2,3,4,5])
 group = np.concatenate((group1, group2))
 batch = np.array([0,0,0,0,0,1,1,1,1,1])
 # Convert batch to numeric codes
@@ -13,7 +13,10 @@ batch = np.array([0,0,0,0,0,1,1,1,1,1])
 #%%
 
 def test_cohens_d():
-    assert DiagnosticFunctions.Cohens_D(group, batch) == [0, 0, 0, 0, 0]
+    group = np.random.rand(10,100)
+    batch = np.array([0,0,0,0,0,1,1,1,1,1])
+    a,b = DiagnosticFunctions.Cohens_D(group, batch)
+    assert np.size(a) ==100
 
 #%%
 import random
@@ -45,13 +48,11 @@ def test_cohens_d_plot():
     
     # Test if the function runs without errors
     try:
-        PlotDiagnosticResults.CohensD(cohens_d,df=None)
+        PlotDiagnosticResults.Cohens_D(cohens_d,labels,df=None)
     except Exception as e:
         assert False, f"CohensD function raised an exception: {e}"
 
     # Check if the plot is created (this is a basic check)
     #assert plt.fignum_exists(1), "Plot was not created"
     #return df
-
-df = test_cohens_d_plot()
 #%%

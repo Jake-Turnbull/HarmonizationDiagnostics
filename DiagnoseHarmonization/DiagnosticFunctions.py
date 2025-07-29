@@ -9,13 +9,13 @@ from scipy.stats import pearsonr
 import numpy as np
 from itertools import combinations
 
-def Cohens_D(Data, group_indices, BatchNames=None):
+def Cohens_D(Data, batch_indices, BatchNames=None):
     """
     Calculate Cohen's d for each feature between all pairs of groups.
 
     Parameters:
         Data (np.ndarray): Data matrix (samples x features).
-        group_indices (list or np.ndarray): Group label for each sample.
+        batch_indices (list or np.ndarray): Group label for each sample.
         BatchNames (dict, optional): Optional mapping from group value to readable name.
 
     Returns:
@@ -24,13 +24,13 @@ def Cohens_D(Data, group_indices, BatchNames=None):
     """
     if not isinstance(Data, np.ndarray) or Data.ndim != 2:
         raise ValueError("Data must be a 2D numpy array (samples x features).")
-    if not isinstance(group_indices, (list, np.ndarray)) or np.ndim(group_indices) != 1:
-        raise ValueError("group_indices must be a 1D list or numpy array.")
-    if Data.shape[0] != len(group_indices):
-        raise ValueError("Number of samples in Data must match length of group_indices.")
+    if not isinstance(batch_indices, (list, np.ndarray)) or np.ndim(batch_indices) != 1:
+        raise ValueError("batch_indices must be a 1D list or numpy array.")
+    if Data.shape[0] != len(batch_indices):
+        raise ValueError("Number of samples in Data must match length of batch_indices.")
 
-    group_indices = np.array(group_indices)
-    unique_groups = np.unique(group_indices)
+    batch_indices = np.array(batch_indices)
+    unique_groups = np.unique(batch_indices)
 
     if len(unique_groups) < 2:
         raise ValueError("At least two unique groups are required to calculate Cohen's d.")
@@ -42,8 +42,8 @@ def Cohens_D(Data, group_indices, BatchNames=None):
     pair_labels = []
 
     for g1, g2 in combinations(unique_groups, 2):
-        data1 = Data[group_indices == g1,:]
-        data2 = Data[group_indices == g2,:]
+        data1 = Data[batch_indices == g1,:]
+        data2 = Data[batch_indices == g2,:]
 
         mean1 = np.mean(data1, axis=0)
         mean2 = np.mean(data2, axis=0)
@@ -87,7 +87,12 @@ def PcaCorr(Data, batch, N_components=None, covariates=None, variable_names=None
     - ValueError: if covariates is not None and not a 2D array
     - ValueError: if variable_names is not None and does not match the number of variables
     """
-
+    if not isinstance(Data, np.ndarray) or Data.ndim != 2:
+        raise ValueError("Data must be a 2D numpy array (samples x features).")
+    if not isinstance(batch, (list, np.ndarray)) or np.ndim(batch) != 1:
+        raise ValueError("batch must be a 1D list or numpy array.")
+    if Data.shape[0] != len(batch):
+        raise ValueError("Number of samples in Data must match length of batch")
     if N_components is None:
         N_components = 4
 
@@ -171,12 +176,41 @@ def MahalanobisDistance(Data=None, batch=None, Cov=None,covariates=None):
             mahalanobis_distance[(b1, b2)] = distance
     return mahalanobis_distance
 
+def mixed_effect_interactions(data,batch,covariates,variable_names):
+
+    """
+    Make mixed effect model including cross terms with batch and covariates,
+
+    Parameters: 
+        - Data: subjects x features (np.ndarray)
+        - batch: subjects x 1 (np.ndarray), batch labels
+        - covariates:  subjects x covariates (np.ndarray)
+        - variable_names: covariates (list)
+    Returns:
+        - 
+    Raises:
+    - ValueError: if Data is not a 2D array or batch is not a
+    1D array, or if the number of samples in Data and batch do not match.
+    - ValueError: if covariates is not None and not a 2D array
+    - ValueError: if variable_names is not None and does not match the number of variables
+    """
+
+    if not isinstance(Data, np.ndarray) or Data.ndim != 2:
+        raise ValueError("Data must be a 2D numpy array (samples x features).")
+    if not isinstance(group_indices, (list, np.ndarray)) or np.ndim(group_indices) != 1:
+        raise ValueError("group_indices must be a 1D list or numpy array.")
+  
+    
+    """
+
 
 
 
 # ------------------ CLI Help Only Setup ------------------
 
 # Help functions are set up to provide descriptions of the available functions without executing them.
+
+"""
 def setup_help_only_parser():
     parser = argparse.ArgumentParser(
         prog='DiagnosticFunctions',

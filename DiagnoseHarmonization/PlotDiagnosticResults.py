@@ -6,6 +6,7 @@ import numpy as np
 """----------------------------------------------------------------------------------------------------------------------------"""
 """---------------------------------------- Plotting functions for Cohens D results ----------------------------------"""
 """----------------------------------------------------------------------------------------------------------------------------"""
+
 def Cohens_D(cohens_d: np.ndarray, pair_labels: list, df: None = None) -> None:
     """
     Plots the output of pairwise Cohen's D as bar plots with histograms of the values on different axes.
@@ -75,7 +76,6 @@ def Cohens_D(cohens_d: np.ndarray, pair_labels: list, df: None = None) -> None:
         ax2.set_title(f"Effect Size (Cohen's d) for {pair_labels[i]}")
         ax2.grid(True)
 
-        plt.tight_layout()
         plt.show()
 """----------------------------------------------------------------------------------------------------------------------------"""
 """---------------------------------------- Plotting functions for PCA correlation results ----------------------------------"""
@@ -193,40 +193,4 @@ def Plot_PC_corr(PrincipleComponents, batch, covariates=None, variable_names=Non
                      xticklabels=combined_variable_names, yticklabels=combined_variable_names)
         plt.title('Correlation Matrix of PCs, Batch and Covariates')
         plt.show()    
-# %%
-# Final sanity check to ensure the plotting shows the expected results
 
-def test_batch_PC_grouping():
-    """
-    Test the PCA plot function when there is a known batch effect on the data and a known covariate effect.
-    This function generates a synthetic dataset with a known batch effect and covariate effect, applies PCA, and plots the results.
-
-    We construct our data using a general linear model:
-    Y = X @ B + E
-
-    where:
-        - Y is the response variable (data matrix)
-        - X is the design matrix (including batch and covariates)
-        - B is the coefficient matrix
-        - E is the error term (noise)
-    """
-# Create a sample dataset
-    np.random.seed(0)
-    X = np.random.rand(100, 5)  # 100 samples, 5 features
-    batch = np.random.randint(0, 2, size=100)  # Binary batch variable
-    covariate_1 = np.random.randint(0,4, size=100)  # One categorical covariate with 4 categories
-    covariate_2 = np.random.rand(100)  # One continuous covariate
-    covariates =  np.column_stack((covariate_1, covariate_2))  # Combine into a 2D array    
-    # Check if the function works with variable names
-    variable_names = ['batch', 'Disease category', 'Age']
-
-    # Add the batch, disease category and age simulated effected to the data
-    B = np.array([1, 0.5, 0.2, 0.1, 0.05],  # Batch effect
-                  [0.5, 1, 0.3, 0.2, 0.1],  # Disease category effect
-                  [0.2, 0.3, 1, 0.4, 0.3, 0.2])  # Age effect
-    Data = X @ B + np.random.normal(0, 0.1, X.shape)  # Add noise
-    # Apply PCA to the data
-    from DiagnoseHarmonization import DiagnosticFunctions
-    explained_variance_with_names, score_with_names, batchPCcorr_with_names = DiagnosticFunctions.PcaCorr(X, batch, covariates=covariates, variable_names=variable_names)
-
-# %%

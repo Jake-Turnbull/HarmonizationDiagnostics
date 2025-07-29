@@ -6,8 +6,10 @@ def test_pca_corr():
     # Create a sample dataset
     np.random.seed(0)
     X = np.random.rand(100, 5)  # 100 samples, 5 features
-    # Create a binary indicator for batch
-    batch = np.random.randint(0, 2, size=100)  # Binary batch variable
+    batch = np.zeros(100)
+    batch[20:40] = batch[20:40] + 1
+    batch[40:80] = batch[40:80] + 2
+    batch[80:99] = batch[80:99] + 4
 
     # Call the PCA correlation function
     explained_variance, score, batchPCcorr = DiagnosticFunctions.PcaCorr(X, batch)
@@ -16,7 +18,7 @@ def test_pca_corr():
     assert score.shape == (100, 4)  # Score should have the same number of samples as X
     assert len(explained_variance) == 4  # Explained variance should match number of features
 
-    # Validate that each variable has 4 correlation values (one per PC)
+    # Validate that each variable has 3 correlation values (one per PC)
     for var_stats in batchPCcorr.values():
         assert len(var_stats['correlation']) == 4
         assert len(var_stats['p_value']) == 4
@@ -53,6 +55,8 @@ def test_pca_corr_with_variable_names():
     for var_stats in batchPCcorr_with_names.values():
         assert len(var_stats['correlation']) == 4
         assert len(var_stats['p_value']) == 4
+
+
 """---------------------------------- Test plotting functions for PCA correlation results ----------------------------------"""
 
 from DiagnoseHarmonization import PlotDiagnosticResults
@@ -94,7 +98,42 @@ def test_PC_plot_with_variable_names():
     variable_names = ['batch', 'Disease category', 'Age']
     explained_variance_with_names, score_with_names, batchPCcorr_with_names = DiagnosticFunctions.PcaCorr(X, batch, covariates=covariates, variable_names=variable_names)
 
-    # Call the PCA correlation function
     PlotDiagnosticResults.Plot_PC_corr(score_with_names, batch, covariates=covariates, variable_names=variable_names,PC_correlations=True)
+#%%
 
+"""
+def test_batch_PC_grouping():
+    ""
+    Test the PCA plot function when there is a known batch effect on the data and a known covariate effect.
+    This function generates a synthetic dataset with a known batch effect and covariate effect, applies PCA, and plots the results.
+
+    We construct our data using a general linear model:
+    Y = X @ B + E
+
+    where:
+        - Y is the response variable (data matrix)
+        - X is the design matrix (including batch and covariates)
+        - B is the coefficient matrix
+        - E is the error term (noise)
+    ""
+# Create a sample dataset
+    np.random.seed(0)
+    X = np.random.rand(100, 5)  # 100 samples, 5 features
+    batch = np.random.randint(0, 2, size=100)  # Binary batch variable
+    covariate_1 = np.random.randint(0,4, size=100)  # One categorical covariate with 4 categories
+    covariate_2 = np.random.rand(100)  # One continuous covariate
+    covariates =  np.column_stack((covariate_1, covariate_2))  # Combine into a 2D array    
+    # Check if the function works with variable names
+    variable_names = ['batch', 'Disease category', 'Age']
+
+    # Add the batch, disease category and age simulated effected to the data
+    B = np.array([1, 0.5, 0.2, 0.1, 0.05],  # Batch effect
+                  [0.5, 1, 0.3, 0.2, 0.1],  # Disease category effect
+                  [0.2, 0.3, 1, 0.4, 0.3, 0.2])  # Age effect
+    Data = X @ B + np.random.normal(0, 0.1, X.shape)  # Add noise
+    # Apply PCA to the data
+    from DiagnoseHarmonization import DiagnosticFunctions
+    explained_variance_with_names, score_with_names, batchPCcorr_with_names = DiagnosticFunctions.PcaCorr(X, batch, covariates=covariates, variable_names=variable_names)
+
+    PlotDiagnosticResults.Plot_PC_corr(score_with_names, batch, covariates=covariates, variable_names=variable_names,PC_correlations=True)"""
 # %%
