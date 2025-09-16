@@ -202,10 +202,6 @@ def mixed_effect_interactions(data,batch,covariates,variable_names):
   
     
     """
-
-
-
-
 # ------------------ CLI Help Only Setup ------------------
 
 # Help functions are set up to provide descriptions of the available functions without executing them.
@@ -240,7 +236,6 @@ def setup_help_only_parser():
 
         '''
     )
-
     # Help entry for PcaCorr
     parser_pca = subparsers.add_parser(
         'PcaCorr',
