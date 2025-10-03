@@ -1,3 +1,4 @@
+from matplotlib import pyplot as plt
 import numpy as np
 from DiagnoseHarmonization import DiagnosticFunctions
 
@@ -22,6 +23,7 @@ def test_pca_corr():
     for var_stats in batchPCcorr.values():
         assert len(var_stats['correlation']) == 4
         assert len(var_stats['p_value']) == 4
+    print("Tested PCA correlation without covariates successfully.")
 
 
 def test_pca_corr_with_covariates():
@@ -38,6 +40,7 @@ def test_pca_corr_with_covariates():
     for var_stats in batchPCcorr_with_cov.values():
         assert len(var_stats['correlation']) == 4
         assert len(var_stats['p_value']) == 4
+    print("Tested PCA correlation with covariates successfully.")
 
 def test_pca_corr_with_variable_names():
     covariates = np.random.rand(100, 2)  # Two covariates
@@ -55,6 +58,7 @@ def test_pca_corr_with_variable_names():
     for var_stats in batchPCcorr_with_names.values():
         assert len(var_stats['correlation']) == 4
         assert len(var_stats['p_value']) == 4
+    print("Tested PCA correlation with variable names successfully.")
 
 
 """---------------------------------- Test plotting functions for PCA correlation results ----------------------------------"""
@@ -69,7 +73,9 @@ def test_PC_plot():
     # Call the PCA correlation function
     explained_variance, score, batchPCcorr = DiagnosticFunctions.PcaCorr(X, batch)
    
-    PlotDiagnosticResults.Plot_PC_corr(score, batch)
+    PlotDiagnosticResults.PC_corr_plot(score, batch)
+    print("Plotted PCA without covariates successfully.")
+    plt.close("all")
 
 
 # Test the PCA plot function with batch and covariates
@@ -84,7 +90,9 @@ def test_PC_plot_with_covariates():
     explained_variance_with_cov, score_with_cov, batchPCcorr_with_cov = DiagnosticFunctions.PcaCorr(X, batch, covariates=covariates)
 
     # Call the PCA correlation function
-    PlotDiagnosticResults.Plot_PC_corr(score_with_cov, batch, covariates=covariates)
+    PlotDiagnosticResults.PC_corr_plot(score_with_cov, batch, covariates=covariates)
+    print("Plotted PCA with covariates successfully.")
+    plt.close("all")
 
 # Test the PCA plot function with variable names and correlation results
 def test_PC_plot_with_variable_names():
@@ -98,7 +106,9 @@ def test_PC_plot_with_variable_names():
     variable_names = ['batch', 'Disease category', 'Age']
     explained_variance_with_names, score_with_names, batchPCcorr_with_names = DiagnosticFunctions.PcaCorr(X, batch, covariates=covariates, variable_names=variable_names)
 
-    PlotDiagnosticResults.Plot_PC_corr(score_with_names, batch, covariates=covariates, variable_names=variable_names,PC_correlations=True)
+    PlotDiagnosticResults.PC_corr_plot(score_with_names, batch, covariates=covariates, variable_names=variable_names,PC_correlations=True)
+    print("Plotted PCA with variable names successfully.")
+    plt.close("all")
 #%%
 
 """
@@ -136,4 +146,4 @@ def test_batch_PC_grouping():
     explained_variance_with_names, score_with_names, batchPCcorr_with_names = DiagnosticFunctions.PcaCorr(X, batch, covariates=covariates, variable_names=variable_names)
 
     PlotDiagnosticResults.Plot_PC_corr(score_with_names, batch, covariates=covariates, variable_names=variable_names,PC_correlations=True)"""
-# %%
+

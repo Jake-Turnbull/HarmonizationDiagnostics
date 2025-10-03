@@ -68,7 +68,7 @@ import numpy as np
 import pandas as pd
 
 # --------------------- Placeholder helper functions ---------------------
-# Replace these with your own precise translations from MATLAB
+# Translated from MATLAB, need to have concistency checked with NeuroComBat
 
 def aprior(delta_hat):
     m = np.mean(delta_hat)
@@ -397,6 +397,70 @@ def combat_modified(dat, batch, mod, parametric,
         bayesdata = (bayesdata * (np.sqrt(var_pooled)[:, None])) + stand_mean
 
     return bayesdata, delta_star, gamma_star
+
+# Define harmonization via mixed effects model (Regression analysis)
+
+def lme_harmonization(data, batch, covariates, variable_names):
+
+    # The function here is identical to that included in the DiagnosticFunctions.py file in methodology, but the 
+    # Out put is instead the residualised data after removing the batch and optionally covariate effects.
+    """
+    Make mixed effect model including cross terms with batch and covariates,
+
+    Parameters: 
+        - Data: subjects x features (np.ndarray)
+        - batch: subjects x 1 (np.ndarray), batch labels
+        - covariates:  subjects x covariates (np.ndarray)
+        - variable_names: covariates (list)
+    Returns:
+        - LME model results object
+    Raises:
+    - ValueError: if Data is not a 2D array or batch is not a
+    1D array, or if the number of samples in Data and batch do not match.
+    - ValueError: if covariates is not None and not a 2D array
+    - ValueError: if variable_names is not None and does not match the number of variables
+    """
+    # Count the number of unique groups in the batch
+    
+    if not isinstance(data, np.ndarray) or data.ndim != 2:
+        raise ValueError("Data must be a 2D numpy array (samples x features).")
+    if not isinstance(batch, (list, np.ndarray)) or np.ndim(batch) != 1:
+        raise ValueError("group_indices must be a 1D list or numpy array.")
+    
+    # Define the mixed effects model as Y = X*beta + e + Z*b
+    # Where Y is the data, X is the design matrix, beta are the fixed effects
+    # e is the residual error, Z is the random effects design matrix and b are the
+    # random effects coefficients
+
+    import pandas as pd
+    import statsmodels.api as sm
+    from statsmodels.formula.api import mixedlm
+    import patsy
+    import numpy as np
+    import itertools
+    import warnings
+    warnings.filterwarnings("ignore")
+    df = pd.DataFrame(data)
+    df['batch'] = batch
+    for i,var in enumerate(variable_names):
+        df[var] = covariates[:,i]
+    # Create interaction terms
+    interaction_terms = []
+    for var in variable_names:
+        interaction_terms.append(f'batch:{var}')
+    interaction_str = ' + '.join(interaction_terms)
+    # Create the formula for the mixed effects model
+    formula = f'Q("0") ~ batch + {" + ".join(variable_names)} + {interaction_str}'
+    # Fit the mixed effects model
+    model = mixedlm(formula, df, groups=df['batch'])
+    result = model.fit()
+
+    # Print the summary of the model
+    print(result.summary())
+    
+    # Residualize the data by removing the batch and covariate effects
+    residuals = result.resid.values
+    return residuals
 
 
     

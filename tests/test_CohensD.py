@@ -17,6 +17,7 @@ def test_cohens_d():
     batch = np.array([0,0,0,0,0,1,1,1,1,1])
     a,b = DiagnosticFunctions.Cohens_D(group, batch)
     assert np.size(a) ==100
+    print("Tested Cohen's D function successfully.")
 
 #%%
 import random
@@ -31,7 +32,10 @@ print(np.shape(batch))
 print(np.shape(cohens_d))
 
 from DiagnoseHarmonization import PlotDiagnosticResults
-PlotDiagnosticResults.Cohens_D(cohens_d,labels)
+PlotDiagnosticResults.Cohens_D_plot(cohens_d,labels)
+print("Plotted Cohen's D successfully.")
+plt.close("all")
+
 
 #%%
 from DiagnoseHarmonization import PlotDiagnosticResults
@@ -48,11 +52,13 @@ def test_cohens_d_plot():
     
     # Test if the function runs without errors
     try:
-        PlotDiagnosticResults.Cohens_D(cohens_d,labels,df=None)
+        PlotDiagnosticResults.Cohens_D_plot(cohens_d,labels,df=None)
     except Exception as e:
         assert False, f"CohensD function raised an exception: {e}"
 
     # Check if the plot is created (this is a basic check)
     #assert plt.fignum_exists(1), "Plot was not created"
     #return df
+    print("Tested Cohen's D plot function with multiple batches successfully.")
+    plt.close("all")
 #%%
