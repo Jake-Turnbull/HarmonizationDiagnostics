@@ -86,11 +86,5 @@ def test_full_pipeline_generates_report(tmp_path = save_dir):
     print("Open this file in your browser to view the report.")
     print("====================================\n")
 
-    # Optionally open the report automatically if env var OPEN_REPORT=1
-    if os.environ.get("OPEN_REPORT", "0") == "1":
-        # Delay briefly to ensure file system flush (usually not necessary)
-        time.sleep(0.2)
-        webbrowser.open(report_path.as_uri())
-
     # Success
     assert True

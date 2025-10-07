@@ -1,7 +1,14 @@
 # Diagnostic report generation using DiagnosticFunctions 
 
 
-def DiagnosticReport(data, batch, covariates=None,batch_names=None, covariate_names=None,save_dir=None, SaveArtifacts=False,rep=None,show=False):
+def DiagnosticReport(data, batch,
+                    covariates=None,
+                      batch_names=None,
+                        covariate_names=None,
+                          save_dir=None,
+                            SaveArtifacts=False,
+                              rep=None,
+                                show=False):
     """
     Create a diagnostic report for dataset differences across batches, taking into account covariates
     when relevant.
