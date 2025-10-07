@@ -40,6 +40,6 @@ import matplotlib.pyplot as plt
 def test_mahalanobis_distance_plot():
     Data, batch, covariates = make_toy_data()
     result = DiagnosticFunctions.MahalanobisDistance(Data=Data, batch=batch, covariates=covariates)
-    fig, axes = PlotDiagnosticResults.mahalanobis_distance_plot(result)
+    fig, axes = PlotDiagnosticResults.mahalanobis_distance_plot(result,show=True)
     plt.close("all")
     print("Tested Mahalanobis distance plot function successfully.")

@@ -159,10 +159,10 @@ class StatsReporter:
             self._file_handler.close()
         self._mem_handler.close()
 
-        # Optional: print a final pointer for interactive use
+        # Print the saved report and figures (artifacts) to console
         print(f"[StatsReporter] Wrote HTML report → {report}")
         if self._artifacts_paths:
-            print("[StatsReporter] Extra artifacts:")
+            print("[StatsReporter] Saved Figures:")
             for p in self._artifacts_paths:
                 print(f"  - {p}")
 
@@ -175,7 +175,7 @@ class StatsReporter:
 
     @staticmethod
     def _render_html(title: str, log_text: str, plots: List[Tuple[str, str]]) -> str:
-        # Very small self-contained HTML; tweak styles as you like
+        # Very small self-contained HTML
         plot_sections = "\n".join(
             f"""
             <figure>
@@ -218,3 +218,60 @@ class StatsReporter:
 </html>
 """
 
+
+from pathlib import Path
+from datetime import datetime
+
+def set_report_path(report, save_dir: str | None = None, report_name: str | None = None, timestamp: bool = True):
+    """
+    Configure and initialize the output HTML diagnostic report file.
+
+    Args:
+        report (StatsReporter): The active StatsReporter instance (from 'with StatsReporter(...) as report').
+        save_dir (str | Path | None): Directory where the HTML report should be saved.
+                                      Defaults to the current working directory.
+        report_name (str | None): Optional base name for the HTML file.
+                                  Default is 'DiagnosticReport.html' (or timestamped version if timestamp=True).
+        timestamp (bool): Whether to append a timestamp to the file name (default: True).
+
+    Returns:
+        Path: The full path to the HTML report file.
+    """
+    import os
+
+    # Determine save directory
+    if save_dir is None:
+        save_dir = os.getcwd()
+
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    # Base filename
+    if report_name is None:
+        report_name = "DiagnosticReport.html"
+
+    # Add timestamp if requested
+    if timestamp:
+        stem, ext = os.path.splitext(report_name)
+        timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        report_name = f"{stem}_{timestamp_str}{ext}"
+
+    # Full report path
+    report_path = save_dir / report_name
+
+    # Tell the StatsReporter to use this path
+    report.report_name = report_name
+    report.save_dir = save_dir
+    report.write_report(report_path)
+
+    # Log this info into the HTML and console
+    report.log_text(f"Initialized HTML report at: {report_path}")
+    print(f"Report will be saved to: {report_path}")
+
+    return report_path
+
+import inspect
+from functools import wraps
+from typing import Any, Callable, List, Tuple, Optional
+import matplotlib.pyplot as plt
+import matplotlib.figure as mfig

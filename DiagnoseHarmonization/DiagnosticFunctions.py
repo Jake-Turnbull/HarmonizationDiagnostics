@@ -1,11 +1,15 @@
 import argparse
 import numpy as np
+import pandas as pd
 from sklearn.decomposition import PCA
 from scipy.stats import pearsonr
 
 # ------------------ Diagnostic Functions ------------------
 # Cohens D function calculates the effect size between two groups for each feature.
 
+import numpy as np
+from itertools import combinations
+# Cohens d function calculates the effect size between two groups for each feature.
 import numpy as np
 from itertools import combinations
 
@@ -15,12 +19,15 @@ def Cohens_D(Data, batch_indices, BatchNames=None):
 
     Parameters:
         Data (np.ndarray): Data matrix (samples x features).
-        batch_indices (list or np.ndarray): Group label for each sample.
-        BatchNames (dict, optional): Optional mapping from group value to readable name.
+        batch_indices (list or np.ndarray): Group label for each sample (can be strings).
+        BatchNames (dict or list or None, optional):
+            - If dict: mapping from group value -> readable name (e.g., {'A':'Batch A', 'B':'Batch B'})
+            - If list/tuple: readable names in the same order as the unique groups in batch_indices
+            - If None: readable names are str(group)
 
     Returns:
         np.ndarray: Cohen's d values, shape = (num_pairs, num_features).
-        list: Pair labels, each as a tuple of group names.
+        list: Pair labels, each as a tuple of (name1, name2).
     """
     if not isinstance(Data, np.ndarray) or Data.ndim != 2:
         raise ValueError("Data must be a 2D numpy array (samples x features).")
@@ -29,41 +36,54 @@ def Cohens_D(Data, batch_indices, BatchNames=None):
     if Data.shape[0] != len(batch_indices):
         raise ValueError("Number of samples in Data must match length of batch_indices.")
 
-    batch_indices = np.array(batch_indices)
-    unique_groups = np.unique(batch_indices)
+    # preserve order of first appearance (important for string labels)
+    # using dict.fromkeys on the list preserves insertion order (Python 3.7+)
+    batch_indices = np.array(batch_indices, dtype=object)
+    unique_groups = np.array(list(dict.fromkeys(batch_indices.tolist())))
 
     if len(unique_groups) < 2:
         raise ValueError("At least two unique groups are required to calculate Cohen's d")
 
+    # Build BatchNames mapping flexibly
     if BatchNames is None:
-        BatchNames = {g: str(g) for g in unique_groups}
+        BatchNames_map = {g: str(g) for g in unique_groups}
+    elif isinstance(BatchNames, dict):
+        # Use provided dict, but fall back to str(g) if a group is missing
+        BatchNames_map = {g: BatchNames.get(g, str(g)) for g in unique_groups}
+    elif isinstance(BatchNames, (list, tuple)):
+        if len(BatchNames) != len(unique_groups):
+            raise ValueError("When BatchNames is a list/tuple its length must equal the number of unique groups.")
+        BatchNames_map = {g: name for g, name in zip(unique_groups, BatchNames)}
+    else:
+        raise ValueError("BatchNames must be a dict, list/tuple, or None.")
 
     pairwise_d = []
     pair_labels = []
 
     for g1, g2 in combinations(unique_groups, 2):
-        data1 = Data[batch_indices == g1,:]
-        data2 = Data[batch_indices == g2,:]
+        mask1 = batch_indices == g1
+        mask2 = batch_indices == g2
+        data1 = Data[mask1, :]
+        data2 = Data[mask2, :]
 
+        # Means and sample std (ddof=1)
         mean1 = np.mean(data1, axis=0)
         mean2 = np.mean(data2, axis=0)
         std1 = np.std(data1, axis=0, ddof=1)
         std2 = np.std(data2, axis=0, ddof=1)
 
-        pooled_std = np.sqrt((std1 ** 2 + std2 ** 2) / 2)
+        # pooled standard deviation (Cohen's d using average SD)
+        pooled_std = np.sqrt((std1 ** 2 + std2 ** 2) / 2.0)
         with np.errstate(divide='ignore', invalid='ignore'):
             d = (mean1 - mean2) / pooled_std
-            d[np.isnan(d)] = 0  # Replace NaNs due to division by zero
+            d = np.where(np.isnan(d), 0.0, d)  # replace NaNs (e.g., zero pooled std) with 0
 
         pairwise_d.append(d)
-        pair_labels.append((f'{BatchNames[g1]} - {BatchNames[g2]}'))
+        pair_labels.append((BatchNames_map[g1], BatchNames_map[g2]))
 
     return np.array(pairwise_d), pair_labels
-# PcaCorr performs PCA on data and computes Pearson correlation of the top N principal components with a batch variable.
-import numpy as np
-from sklearn.decomposition import PCA
-from scipy.stats import pearsonr
 
+# PcaCorr performs PCA on data and computes Pearson correlation of the top N principal components with a batch variable.
 def PcaCorr(Data, batch, N_components=None, covariates=None, variable_names=None):
     """
     Perform PCA and correlate top PCs with batch and optional covariates.
@@ -101,6 +121,11 @@ def PcaCorr(Data, batch, N_components=None, covariates=None, variable_names=None
     explained_variance = pca.explained_variance_ratio_ * 100
 
     # Combine batch and covariates
+    # Check if batch is numeric, if not convert to numeric codes
+    if batch.dtype.kind in {'U', 'S', 'O'}:  # string
+        batch, _ = pd.factorize(batch)   
+    batch = batch.astype(float)
+
     variables = [batch.astype(float)]
     if covariates is not None:
         variables.extend([covariates[:, i].astype(float) for i in range(covariates.shape[1])])
@@ -123,11 +148,9 @@ def PcaCorr(Data, batch, N_components=None, covariates=None, variable_names=None
             'p_value': np.array(pvals)
         }
         return explained_variance, score, PC_correlations
-
-import numpy as np
-from itertools import combinations
-
+# MahalanobisDistance computes the Mahalanobis distance (multivariate difference between batch and global centroids) 
 def MahalanobisDistance(Data=None, batch=None, covariates=None):
+
     """
     Calculate the Mahalanobis distance between batches in the data.
     Takes optional covariates and returns distances between each batch pair
@@ -240,8 +263,7 @@ def MahalanobisDistance(Data=None, batch=None, covariates=None):
         "centroid_resid": centroid_resid,
         "batches": unique_batches.tolist(),
     }
- 
-
+# Mixed effect model including cross terms with batch and covariates
 def mixed_effect_interactions(data,batch,covariates,variable_names):
 
     """
@@ -295,7 +317,7 @@ def mixed_effect_interactions(data,batch,covariates,variable_names):
     model = mixedlm(formula, df, groups=df['batch'])
     result = model.fit()
     return result  
-
+# Define a function to calculate the feature-wise ratio of variance between each unique batch pair
 def Variance_ratios(data, batch, covariates=None):
     # Define a function to calculate the feature-wise ratio of variance between each unique batch pair
     import numpy as np
@@ -335,9 +357,23 @@ def Variance_ratios(data, batch, covariates=None):
             ratio[np.isnan(ratio)] = 0  # Replace NaNs due to division by zero
         ratio_of_variance[(b1, b2)] = ratio
     return ratio_of_variance
-
-def KS_test(data, batch):
-    # Define a function to perform two-sample Kolmogorov-Smirnov test for distribution differences between each unique batch pair
+# Define a function to perform two-sample Kolmogorov-Smirnov test for distribution differences between
+# each unique batch pair and each batch with the overall distribution
+def KS_test(data, batch,feature_names=None):
+    # Define a function to perform two-sample Kolmogorov-Smirnov test for distribution differences between
+    # each unique batch pair and each batch with the overall distribution
+    """
+    Args: data
+    - data: subjects x features (np.ndarray)
+    - batch: subjects x 1 (np.ndarray), batch labels
+    - feature_names: list of str, optional, names for the features (default is None, will generate default names)
+    Returns:
+        - ks_results: dictionary with KS test statistic and p-value for each pair of batches and
+        each batch with the overall distribution
+    Raises:
+        - ValueError: if Data is not a 2D array or batch is not a
+        1D array, or if the number of samples in Data and batch do not match    
+    """
     import numpy as np
     from scipy.stats import ks_2samp
     from itertools import combinations
@@ -357,6 +393,18 @@ def KS_test(data, batch):
     # Calculate variances for each feature in each batch
     for b in unique_batches:
         batch_data[b] = data[batch == b]
+        # Run two-sample KS test for each batch and the overall distribution
+        p_values = []
+        statistics = []
+        for feature_idx in range(data.shape[1]):
+            stat, p_value = ks_2samp(batch_data[b][:, feature_idx], data[:, feature_idx])
+            statistics.append(stat)
+            p_values.append(p_value)
+        # Store results as part of dictonary under label of batch and 'overall', find data by calling ks_results[(b, 'overall')]
+        ks_results[(b, 'overall')] = {
+            'statistic': np.array(statistics),
+            'p_value': np.array(p_values)
+        }
     for b1, b2 in combinations(unique_batches, 2):
         p_values = []
         statistics = []
@@ -368,8 +416,12 @@ def KS_test(data, batch):
             'statistic': np.array(statistics),
             'p_value': np.array(p_values)
         }
-    return ks_results
+    if feature_names is None:
+        feature_names = [f'feature {i+1}' for i in range(data.shape[1])]
+    ks_results['feature_names'] = feature_names
 
+    return ks_results
+# Define a function to perform the Levene's test for variance differences between each unique batch pair
 def Levene_test(data, batch, centre = 'median'):
     # Define a function to perform the Levene's test for variance differences between each unique batch pair
 
@@ -416,6 +468,8 @@ def Levene_test(data, batch, centre = 'median'):
             'p_value': np.array(p_values)
         }
     return levene_results
+
+
 """
 ------------------ CLI Help Only Setup ------------------
  Help functions are set up to provide descriptions of the available functions without executing them.

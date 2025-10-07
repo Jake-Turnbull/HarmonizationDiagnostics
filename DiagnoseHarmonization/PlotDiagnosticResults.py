@@ -1,83 +1,172 @@
 #%%
-import matplotlib
-import pandas as pd
-import matplotlib.pyplot as plt
-from collections.abc import Sequence
-import numpy as np
-"""----------------------------------------------------------------------------------------------------------------------------"""
-"""---------------------------------------- Plotting functions for Cohens D results ----------------------------------"""
-"""----------------------------------------------------------------------------------------------------------------------------"""
 
-import pandas as pd
+
+"""----------------------------------------------------------------------------------------------------------------------------"""
+"""---------------------------------------- TEST WRAPPER FUNCTION ----------------------------------"""
+"""----------------------------------------------------------------------------------------------------------------------------"""
+import inspect
+from functools import wraps
+from typing import Any, Callable, List, Tuple, Optional
+import matplotlib.pyplot as plt
+import matplotlib.figure as mfig
+
+def _is_figure(obj) -> bool:
+    return isinstance(obj, mfig.Figure)
+
+def _normalize_figs_from_result(result: Any) -> List[Tuple[Optional[str], mfig.Figure]]:
+    """Normalize many possible return shapes into a list of (caption, Figure)."""
+    if result is None:
+        return []
+    if _is_figure(result):
+        return [(None, result)]
+    if isinstance(result, tuple) and len(result) >= 1 and _is_figure(result[0]):
+        return [(None, result[0])]
+    if isinstance(result, (list, tuple)):
+        out = []
+        for item in result:
+            if _is_figure(item):
+                out.append((None, item))
+            elif isinstance(item, (list, tuple)) and len(item) >= 2 and _is_figure(item[1]):
+                out.append((str(item[0]) if item[0] is not None else None, item[1]))
+        return out
+    if isinstance(result, dict):
+        for k in ("fig", "figure", "figures"):
+            if k in result:
+                return _normalize_figs_from_result(result[k])
+    return []
+
+def rep_plot_wrapper(func: Callable) -> Callable:
+    """
+    Decorator that:
+      - optionally forces show=False (if the wrapped function supports it),
+      - intercepts and removes wrapper-only kwargs (rep, log_func, caption),
+      - logs returned figure(s) into rep via rep.log_plot(fig, caption) if rep provided,
+      - closes figures after logging to free memory.
+    """
+    @wraps(func)
+    def _wrapper(*args, **kwargs):
+        # Extract wrapper-only args and remove them from kwargs BEFORE calling func
+        rep = kwargs.pop("rep", None)
+        log_func = kwargs.pop("log_func", None)
+        caption_kw = kwargs.pop("caption", None)
+
+        # If function supports 'show', force show=False unless caller explicitly set it
+        try:
+            sig = inspect.signature(func)
+            if "show" in sig.parameters and "show" not in kwargs:
+                kwargs["show"] = False
+        except Exception:
+            pass
+
+        # Call original function without rep/log_func/caption in kwargs
+        result = func(*args, **kwargs)
+
+        # If neither rep nor log_func provided, return the original result unchanged
+        if rep is None and log_func is None:
+            return result
+
+        # Normalize any returned figures
+        figs = _normalize_figs_from_result(result)
+        if not figs:
+            # nothing to log; return original result for backward compatibility
+            return result
+
+        # Log each figure (use caption from return value or fallback)
+        for idx, (cap, fig) in enumerate(figs):
+            used_caption = cap or caption_kw or f"{func.__name__} — plot {idx+1}"
+            try:
+                if rep is not None:
+                    rep.log_plot(fig, used_caption)
+                elif callable(log_func):
+                    log_func(fig, used_caption)
+            except Exception as e:
+                # best-effort: if rep has log_text, write the error there
+                try:
+                    if rep is not None and hasattr(rep, "log_text"):
+                        rep.log_text(f"Failed to log figure from {func.__name__}: {e}")
+                except Exception:
+                    pass
+            finally:
+                try:
+                    plt.close(fig)
+                except Exception:
+                    pass
+
+        # Return original result (keeps backward compatibility)
+        return result
+
+    return _wrapper
+
+#%%
+
 import matplotlib.pyplot as plt
 from collections.abc import Sequence
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from collections.abc import Sequence
 """----------------------------------------------------------------------------------------------------------------------------"""
 """---------------------------------------- Plotting functions for Cohens D results ----------------------------------"""
 """----------------------------------------------------------------------------------------------------------------------------"""
-def Cohens_D_plot(cohens_d: np.ndarray, pair_labels: list, df: None = None) -> None:
-    """
-    Plots the output of pairwise Cohen's D as bar plots with histograms of the values on different axes.
-    Args:
-        cohens_d (np.ndarray): 2D array of Cohen's D values (num_pairs x num_features).
-        pair_labels (list): List of labels for each group pair (e.g., ['Group1 + Group2']).
-        df (pd.DataFrame, optional): DataFrame for future use or extension. Currently unused.
-    Returns:
-        None: Displays the plots.
-    """
-    import matplotlib.pyplot as plt
-    import matplotlib.gridspec as gridspec
-    import numpy as np
-    import pandas as pd
-    # Input validation
-    if df is not None:
-        if not isinstance(df, pd.DataFrame):
-            raise ValueError("Dataframe must be a pandas DataFrame")
-        if 'CohensD' not in df.columns:
-            raise ValueError("Dataframe must contain a 'CohensD' column")
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import numpy as np
+from typing import Optional
+import pandas as pd
+
+def Cohens_D_plot(
+    cohens_d: np.ndarray,
+    pair_labels: list,
+    df: Optional[pd.DataFrame] = None,
+    *,
+    rep = None,            # optional StatsReporter
+    caption: Optional[str] = None,
+    show: bool = False
+) -> plt.Figure:
+    # (validation code unchanged)...
     if not isinstance(cohens_d, np.ndarray):
         raise ValueError("cohens_d must be a NumPy array.")
-    
     if cohens_d.ndim != 2:
         raise ValueError("cohens_d must be a 2D array (num_pairs x num_features).")
     if not isinstance(pair_labels, list) or len(pair_labels) != cohens_d.shape[0]:
-        raise ValueError("pair_labels must be a list with the same length as the number of rows in cohens_d.")
+        raise ValueError("pair_labels must be a list with the same length as cohens_d rows.")
+    
+    # Create one figure per pair and return a list or just create+log each inside loop:
+    figs = []
     for i in range(cohens_d.shape[0]):
         fig = plt.figure(figsize=(14, 8))
         gs = gridspec.GridSpec(1, 2, width_ratios=[1, 8], wspace=0.3)
-        # Histogram (left)
         ax1 = fig.add_subplot(gs[0])
         ax1.hist(cohens_d[i], bins=20, orientation='horizontal', color=[0.8, 0.2, 0.2])
         ax1.set_xlabel("Frequency")
         ax1.invert_xaxis()
         ax1.yaxis.tick_right()
         ax1.yaxis.set_label_position("right")
-        # Bar plot (right)
         ax2 = fig.add_subplot(gs[1], sharey=ax1)
         indices = np.arange(cohens_d.shape[1])
-        bars = ax2.bar(indices, cohens_d[i], color=[0.2, 0.4, 0.6])
+        ax2.bar(indices, cohens_d[i], color=[0.2, 0.4, 0.6])
         ax2.plot(indices, cohens_d[i], 'r.')
-        # Significance lines
-        effect_sizes = [
-            (0.2, 'Small', 'g'),
-            (0.5, 'Medium', 'b'),
-            (0.8, 'Large', 'r'),
-            (2.0, 'Huge', 'm')
-        ]
-        for val, label, color in effect_sizes:
-            ax2.axhline(y=val, linestyle='--', color=color, label=label)
-            ax2.axhline(y=-val, linestyle='--', color=color)
-        # Labels and title
+        # add effect size lines...
         ax2.set_xlabel("Feature Index")
-        ax2.set_ylabel("Cohen's d: $(\\mu_1 - \\mu_2)/\\sigma_{pooled}$")
+        ax2.set_ylabel("Cohen's d")
         ax2.set_title(f"Effect Size (Cohen's d) for {pair_labels[i]}")
-        ax2.grid(True)
-        plt.show()
-"""----------------------------------------------------------------------------------------------------------------------------"""
-"""---------------------------------------- Plotting functions for PCA correlation results ----------------------------------"""
-"""----------------------------------------------------------------------------------------------------------------------------"""
+        fig.tight_layout()
 
-def variance_ratio_plot(variance_ratios:  np.ndarray, pair_labels: list, df: None = None) -> None:
+        caption_i = caption or f"Cohen's d — {pair_labels[i]}"
+        if rep is not None:
+            rep.log_plot(fig, caption_i)
+            plt.close(fig)
+        else:
+            figs.append((caption_i, fig))
+            if show:
+                plt.show()
+    # If rep used, figs list is empty; otherwise return list for caller
+    return None if rep is not None else figs
+"""----------------------------------------------------------------------------------------------------------------------------"""
+"""---------------------------------------- Plotting functions ratio of variance ----------------------------------"""
+"""----------------------------------------------------------------------------------------------------------------------------"""
+def variance_ratio_plot(variance_ratios:  np.ndarray, pair_labels: list,
+                         df: None = None,rep = None,show: bool = False,caption: Optional[str] = None,) -> None:
     """
     Plots the explained variance ratio for each principal component as a bar plot.
 
@@ -102,7 +191,8 @@ def variance_ratio_plot(variance_ratios:  np.ndarray, pair_labels: list, df: Non
         raise ValueError("variance_ratios must be a 2D array (num_pairs x num_features).")
     if not isinstance(pair_labels, list) or len(pair_labels) != variance_ratios.shape[0]:
         raise ValueError("pair_labels must be a list with the same length as the number of rows in variance_ratios.")
-
+    
+    figs = []
     for i, label in enumerate(pair_labels):
         fig = plt.figure(figsize=(14, 8))
         gs = gridspec.GridSpec(1, 2, width_ratios=[1, 8], wspace=0.3)
@@ -126,126 +216,167 @@ def variance_ratio_plot(variance_ratios:  np.ndarray, pair_labels: list, df: Non
         ax2.set_ylabel("Variance Ratio: $(\\sigma_1 / \\sigma_2)$")
         ax2.set_title(f"Feature wise ratio of variance between {label}")
         ax2.grid(True)
-        plt.show()
 
-def PC_corr_plot(PrincipleComponents, batch, covariates=None, variable_names=None, PC_correlations = False):
-    """
-    Plots the first two PCs as a scatter plot with batch indicated by color.
-    parameters:
-        PrincipleComponents (np.ndarray): The PCA scores (subjects x N_components).
-        batch (np.ndarray): Subjects x 1, batch labels.
-        covariates (np.ndarray, optional): Subjects x covariates, additional variables to correlate with PCs. Defaults to None.
-        variable_names (list of str, optional): Names for the variables. Defaults to None.
-    Returns:
-        None: Displays the plot.
-    Raises:
-        ValueError: If PrincipleComponents is not a 2D array or batch is not a
-        1D array, or if the number of samples in PrincipleComponents and batch do not match.
+        caption_i = caption or f"Variance ratio — {pair_labels[i]}"
 
+        if rep is not None:
+            rep.log_plot(fig, caption_i)
+            plt.close(fig)
+        else:
+            figs.append((caption_i, fig))
+            if show:
+                plt.show()
+
+    return None if rep is not None else figs
+"""----------------------------------------------------------------------------------------------------------------------------"""
+"""---------------------------------------- Plotting functions for PCA correlation results ----------------------------------"""
+"""----------------------------------------------------------------------------------------------------------------------------"""
+@rep_plot_wrapper
+def PC_corr_plot(
+    PrincipleComponents,
+    batch,
+    covariates=None,
+    variable_names=None,
+    PC_correlations=False,
+    *,
+    show: bool = False
+):
     """
-    import matplotlib.pyplot as plt
-    import matplotlib.gridspec as gridspec
+    Generate multiple PCA diagnostic plots and return a list of (caption, fig).
+    Robust handling of variable_names:
+      - If variable_names includes 'batch' as the first name, the rest are treated as covariate names.
+      - Otherwise variable_names is interpreted as covariate names (must match covariates.shape[1]).
+    """
     import numpy as np
-    # Check number of batches
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    figs = []
+
+    # Validation
+    if not isinstance(PrincipleComponents, np.ndarray) or PrincipleComponents.ndim != 2:
+        raise ValueError("PrincipleComponents must be a 2D numpy array (samples x components).")
+    if not isinstance(batch, np.ndarray) or batch.ndim != 1:
+        raise ValueError("batch must be a 1D numpy array.")
+    if PrincipleComponents.shape[0] != len(batch):
+        raise ValueError("Number of samples in PrincipleComponents and batch must match.")
     unique_batches = np.unique(batch)
     if len(unique_batches) < 2:
-        raise ValueError("At least two unique batches are required")
+        raise ValueError("At least two unique batches are required.")
 
-    # iteratvely plot the first two PCs, seperated by batch
-    import matplotlib.pyplot as plt
-
-    if variable_names is None:
-        if covariates is not None:
-            variables = np.column_stack((batch, covariates))
-            variable_names = ['Batch'] + [f'Covariate{i+1}' for i in range(covariates.shape[1])]
-        else:
-            variables = batch
-            variable_names = [f"Batch"]  
-    # Create a DataFrame for plotting
-
-    import pandas as pd
-
+    # Build DataFrame of PCs
     PC_Names = [f"PC{i+1}" for i in range(PrincipleComponents.shape[1])]
-    df = pd.DataFrame(PrincipleComponents, columns=PC_Names[:PrincipleComponents.shape[1]])
-    df['batch'] = batch
+    df = pd.DataFrame(PrincipleComponents, columns=PC_Names)
+    df["batch"] = batch
 
+    # --- Interpret variable_names robustly ---
+    cov_names = None  # final covariate names we will use to map covariates columns
     if covariates is not None:
-        for i in range(covariates.shape[1]):
-            df[f'Covariate{i+1}'] = covariates[:, i]
+        covariates = np.asarray(covariates)
+        if covariates.ndim != 2:
+            raise ValueError("covariates must be a 2D array (samples x num_covariates).")
+        if covariates.shape[0] != PrincipleComponents.shape[0]:
+            raise ValueError("Number of rows in covariates must match number of samples.")
 
-    # Plotting by batch
-    plt.figure(figsize=(10, 8))
-    for i in range(len(unique_batches)):
-        batch_data = df[df['batch'] == unique_batches[i]]
-        #plt.scatter(batch_data[variable_names[0]], batch_data[variable_names[1]], label=f'Batch {unique_batches[i]}', alpha=0.6)
-        # Plotting the first two PCs as a scatter plot
-        plt.scatter(PrincipleComponents[batch == unique_batches[i], 0],
-                    PrincipleComponents[batch == unique_batches[i], 1],
-                    label=f'Batch {unique_batches[i]}', alpha=0.6)
-        plt.xlabel('Principal Component 1')
-        plt.ylabel('Principal Component 2')
-        plt.title('PCA Scatter Plot by Batch')
-        plt.legend()
-        plt.grid(True)
-    plt.show()
-
-    # Plotting by covariates if provided
-    if covariates is not None:
-        for i in range(covariates.shape[1]):
-            plt.figure(figsize=(10, 8))
-            # Check if covariate is continuous or categorical, as categorical may be binary, check by number of unique values
-            if len(np.unique(covariates[:, i])) <= 20:  # Assuming
-                # If categorical, use a scatter plot of first two PCs, with discrete colours for each category indicated in the legend
-                unique_categories = np.unique(covariates[:, i])
-                for category in unique_categories:
-                    category_data = df[df[f'Covariate{i+1}'] == category]
-                    # Plotting the first two PCs as a scatter plot by covariate category
-                    plt.scatter(PrincipleComponents[category_data.index, 0],
-                                PrincipleComponents[category_data.index, 1],
-                                label=f'{variable_names[i+1]} = {category}', alpha=0.6)
-                    
-            elif np.issubdtype(covariates[:, i].dtype, np.number):  # Check if continuous
-                # If continous, use a scatter plot of first two PCs, with opacity based on covariate value
-                plt.scatter(PrincipleComponents[:, 0], PrincipleComponents[:, 1],
-                            c=covariates[:, i], cmap='viridis', alpha=0.6, label=f'{variable_names[i+1]} {i+1}')
-                plt.colorbar(label=f'{variable_names[i+1]}{i+1}')
+        # If user provided variable_names:
+        if variable_names is not None:
+            # Option B: allow variable_names starting with 'batch' followed by covariate names
+            if len(variable_names) == covariates.shape[1]:
+                # user supplied only covariate names (good)
+                cov_names = list(variable_names)
+            elif (
+                len(variable_names) == covariates.shape[1] + 1 and
+                str(variable_names[0]).lower() == "batch"
+            ):
+                # user included 'batch' as first element
+                cov_names = list(variable_names[1:])
             else:
-                raise ValueError(f"Covariate {i+1} must be either continuous or categorical, got {covariates[:, i].dtype}")
-            plt.xlabel('Principal Component 1')
-            plt.ylabel('Principal Component 2')
-            plt.title(f'PCA Scatter Plot by Covariate {i+1}')
-            plt.legend()
-            plt.grid(True)
-            plt.show()  
-
-    # Calculate and plot correlations with PCs if PC_correlations is True
-    if PC_correlations:
-        if covariates is None:
-            raise Warning("Covariates not provided proceeding with just batch correlation")
-            correlations = np.corrcoef(PrincipleComponents.T, batch.T)[:PrincipleComponents.shape[1], PrincipleComponents.shape[1]:]
+                # inconsistent lengths — raise a helpful error
+                raise ValueError(
+                    "variable_names length does not match number of covariates.\n"
+                    f"covariates has {covariates.shape[1]} columns, "
+                    f"but variable_names has length {len(variable_names)}.\n"
+                    "If you include 'batch' in variable_names, put it first (e.g. ['batch', 'Age', 'Sex'])."
+                )
         else:
-            # Calculate correlations between PCs, covariates and batch
-            if not isinstance(covariates, np.ndarray):
-                raise ValueError("Covariates must be a numpy array")
-        # Combine batch, covariates and PCS into a single array for correlation
-            combined_data = np.column_stack((PrincipleComponents, batch, covariates))
-            # Combine names for axes
-            combined_variable_names = variable_names + [f'PC{i+1}' for i in range(PrincipleComponents.shape[1])]
-            # Calculate correlations
-            correlations = np.corrcoef(combined_data.T)
-        # Plot the correlation matrix
-        import seaborn as sns
-        plt.figure(figsize=(12, 10))
-        sns.heatmap(correlations, annot=True, fmt=".2f", cmap='coolwarm',
-                     xticklabels=combined_variable_names, yticklabels=combined_variable_names)
-        plt.title('Correlation Matrix of PCs, Batch and Covariates')
-        plt.show()    
+            # no variable_names provided — create defaults
+            cov_names = [f"Covariate{i+1}" for i in range(covariates.shape[1])]
 
+        # assign covariates to df columns using cov_names
+        for i, name in enumerate(cov_names):
+            df[name] = covariates[:, i]
+    else:
+        # no covariates present; ensure variable_names is either None or empty
+        if variable_names is not None:
+            # if variable_names included 'batch' only, that's okay; ignore it
+            if not (len(variable_names) == 1 and str(variable_names[0]).lower() == "batch"):
+                raise ValueError("variable_names provided but covariates is None. Provide covariates or remove variable_names.")
+        cov_names = []
+
+    # --- 1) PCA scatter by batch ---
+    fig1, ax = plt.subplots(figsize=(8, 6))
+    for b in unique_batches:
+        ax.scatter(df.loc[df["batch"] == b, "PC1"], df.loc[df["batch"] == b, "PC2"], label=f"Batch {b}", alpha=0.7)
+    ax.set_xlabel("Principal Component 1")
+    ax.set_ylabel("Principal Component 2")
+    ax.set_title("PCA Scatter Plot by Batch")
+    ax.legend()
+    ax.grid(True)
+    figs.append(("PCA scatter by batch", fig1))
+
+    # --- 2) PCA scatter by each covariate (if present) ---
+    if cov_names:
+        for name in cov_names:
+            vals = df[name].values
+            fig, ax = plt.subplots(figsize=(8, 6))
+            if len(np.unique(vals)) <= 20:
+                # categorical
+                for cat in np.unique(vals):
+                    sel = df[name] == cat
+                    ax.scatter(df.loc[sel, "PC1"], df.loc[sel, "PC2"], label=f"{name}={cat}", alpha=0.6)
+            else:
+                sc = ax.scatter(df["PC1"], df["PC2"], c=vals, cmap="viridis", alpha=0.7)
+                plt.colorbar(sc, ax=ax, label=name)
+            ax.set_xlabel("Principal Component 1")
+            ax.set_ylabel("Principal Component 2")
+            ax.set_title(f"PCA Scatter Plot by {name}")
+            ax.legend(loc="best", fontsize="small", frameon=True)
+            ax.grid(True)
+            figs.append((f"PCA scatter by {name}", fig))
+
+    # --- 3) Correlation heatmap if requested ---
+    if PC_correlations:
+        if covariates is not None:
+            combined_data = np.column_stack((PrincipleComponents, batch.reshape(-1, 1), covariates))
+            combined_names = PC_Names + ["Batch"] + cov_names
+        else:
+            combined_data = np.column_stack((PrincipleComponents, batch.reshape(-1, 1)))
+            combined_names = PC_Names + ["Batch"]
+
+        corr = np.corrcoef(combined_data.T)
+        fig, ax = plt.subplots(figsize=(10, 8))
+        sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", xticklabels=combined_names, yticklabels=combined_names, ax=ax)
+        ax.set_title("Correlation Matrix of PCs, Batch, and Covariates")
+        figs.append(("PCA correlation matrix", fig))
+
+    # show only if requested
+    if show:
+        for _, f in figs:
+            f.show()
+
+    return figs
+
+"""----------------------------------------------------------------------------------------------------------------------------"""
+"""---------------------------------------- Plotting functions for Mahalanobis distance ----------------------------------"""
+"""----------------------------------------------------------------------------------------------------------------------------"""
 def mahalanobis_distance_plot(results: dict,
-                              annotate: bool = True,
-                              figsize=(14, 5),
-                              cmap="viridis",
-                              show: bool = True):
+                               rep=None,
+                                 annotate: bool = True,
+                                   figsize=(14,5),
+                                     cmap="viridis",
+                                       show: bool = False):
+
     """
     Plot Mahalanobis distances from (...) all on ONE figure:
       - Heatmap of pairwise RAW distances
@@ -412,8 +543,203 @@ def mahalanobis_distance_plot(results: dict,
     axes = {"heatmap_raw": ax_raw, "bars": ax_bar}
     if has_resid:
         axes["heatmap_resid"] = ax_resid
+    fig.tight_layout()
+    if rep is not None:
+        rep.log_plot(fig, "Mahalanobis distances (raw vs residual)")
+        plt.close(fig)
+        return None, None  # or return a small marker that it was logged
+    if show:
+        plt.show()
     return fig, axes
 
- 
+"""----------------------------------------------------------------------------------------------------------------------------"""
+"""---------------------------------------- Plotting functions for Two-sample Kolmogorov-Smirnov test ----------------------------------"""
+"""----------------------------------------------------------------------------------------------------------------------------"""
+@rep_plot_wrapper
+def KS_plot(ks_results):
+    """
+    Plot KS test results produced by KS_test().
+
+    This version accepts either:
+      - the original ks_results returned by the KS_test you posted, i.e.
+        keys like (b,'overall') and (b1,b2) with values {'statistic': ..., 'p_value': ...}
+      - OR a dict containing 'pairwise_ks' mapping -> {(b1,b2): (stat_array, p_array), ...}
+        and 'feature_names'.
+
+    The plotting uses the minimum p-value across features as a single representative p-value
+    for each pair (so each pair produces one dot on the plot). Change to np.median or np.mean
+    if you want a different summary.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import matplotlib.gridspec as gridspec
+
+    # Basic validation
+    if not isinstance(ks_results, dict):
+        raise ValueError("ks_results must be a dictionary.")
+
+    # Extract feature names
+    if 'feature_names' in ks_results:
+        feature_names = ks_results['feature_names']
+    else:
+        raise ValueError("ks_results must contain 'feature_names'.")
+
+    # Build a canonical pairwise_ks mapping: (b1,b2) -> (stat_array, p_array)
+    pairwise_ks = {}
+    # If user already provided 'pairwise_ks' in desired format, accept it
+    if 'pairwise_ks' in ks_results:
+        # Expect values to be either dict{'statistic', 'p_value'} or tuple (stat, p)
+        raw = ks_results['pairwise_ks']
+        if not isinstance(raw, dict):
+            raise ValueError("'pairwise_ks' must be a dict mapping pairs to results.")
+        for pair, val in raw.items():
+            if isinstance(val, dict) and 'statistic' in val and 'p_value' in val:
+                pairwise_ks[pair] = (np.asarray(val['statistic']), np.asarray(val['p_value']))
+            elif isinstance(val, (list, tuple)) and len(val) == 2:
+                pairwise_ks[pair] = (np.asarray(val[0]), np.asarray(val[1]))
+            else:
+                raise ValueError("Each entry in 'pairwise_ks' must be dict{'statistic','p_value'} or (stat,p).")
+    else:
+        # Build from tuple keys like (b,'overall') and (b1,b2)
+        for k, v in ks_results.items():
+            if isinstance(k, tuple) and len(k) == 2 and k != ('feature_names',):
+                # Expect v to be dict with 'statistic' and 'p_value'
+                if isinstance(v, dict) and 'statistic' in v and 'p_value' in v:
+                    pairwise_ks[k] = (np.asarray(v['statistic']), np.asarray(v['p_value']))
+                elif isinstance(v, (list, tuple)) and len(v) == 2:
+                    pairwise_ks[k] = (np.asarray(v[0]), np.asarray(v[1]))
+                # else ignore other keys (like 'feature_names')
+
+    # Now split into overall vs pairwise lists. We will summarize p-values by taking min across features.
+    overall_pairs = []
+    pairwise_pairs = []
+    for (b1, b2), (stat_arr, p_arr) in pairwise_ks.items():
+        # ensure p_arr is a 1D array of length n_features
+        p_arr = np.asarray(p_arr).ravel()
+        if b2 == 'overall' or b1 == 'overall':
+            # treat any pair involving 'overall' as overall comparison
+            overall_pairs.append(((b1, b2), stat_arr, p_arr))
+        else:
+            pairwise_pairs.append(((b1, b2), stat_arr, p_arr))
+
+    # Helper to extract representative p-value (here min across features)
+    def rep_p(p_array):
+        if p_array.size == 0:
+            return np.nan
+        return float(np.nanmin(p_array))
+
+    # Build arrays for plotting
+    # Overall
+    overall_labels = []
+    overall_pvals = []
+    for (b1, b2), stat_arr, p_arr in overall_pairs:
+        # label as batch name (the non-overall entry)
+        label = b1 if b2 == 'overall' else b2 if b1 == 'overall' else f"{b1} vs {b2}"
+        overall_labels.append(str(label))
+        overall_pvals.append(rep_p(p_arr))
+    overall_pvals = np.array(overall_pvals)
+
+    # Pairwise
+    pair_labels = []
+    pair_pvals = []
+    for (b1, b2), stat_arr, p_arr in pairwise_pairs:
+        pair_labels.append(f"{b1} vs {b2}")
+        pair_pvals.append(rep_p(p_arr))
+    pair_pvals = np.array(pair_pvals)
+
+    # Sorting (handle NaNs by placing them at end)
+    def sort_labels_and_vals(labels, vals):
+        if vals.size == 0:
+            return [], np.array([]), []
+        sort_idx = np.argsort(np.nan_to_num(vals, nan=np.inf))
+        sorted_vals = vals[sort_idx]
+        sorted_labels = [labels[i] for i in sort_idx]
+        return sorted_labels, sorted_vals, sort_idx
+
+    s_over_labels, s_over_vals, _ = sort_labels_and_vals(overall_labels, overall_pvals)
+    s_pair_labels, s_pair_vals, _ = sort_labels_and_vals(pair_labels, pair_pvals)
+
+    # Convert to -log10, handle zeros or extremely small numbers safely
+    def neglog10_safe(p_array):
+        p = np.asarray(p_array, dtype=float)
+        p = np.where(np.isfinite(p), p, np.nan)
+        # replace zeros with a small value so -log10 doesn't blow up
+        tiny = 1e-323  # smallest positive float > 0 for double
+        p = np.where(p <= 0, tiny, p)
+        return -np.log10(p)
+
+    x_over = neglog10_safe(s_over_vals)
+    x_pair = neglog10_safe(s_pair_vals)
+
+    # Create the figure with two side-by-side horizontal dot plots
+    fig = plt.figure(figsize=(14, 8))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[1, 8], wspace=0.4)
+    # Left: overall
+    ax1 = fig.add_subplot(gs[0])
+    if len(s_over_labels) > 0:
+        y_over = np.arange(len(s_over_labels))
+        ax1.scatter(x_over, y_over)
+        ax1.set_yticks(y_over)
+        ax1.set_yticklabels(s_over_labels)
+        ax1.set_xlabel('-log10(p-value)')
+    else:
+        ax1.text(0.5, 0.5, "No 'batch vs overall' comparisons found", ha='center', va='center')
+    ax1.set_title('Batch vs Overall (min p across features)')
+
+    # thresholds lines (x positions)
+    thresh05 = -np.log10(0.05)
+    bonferroni_threshold = 0.05 / max(1, len(feature_names))
+    thresh_bon = -np.log10(bonferroni_threshold)
+    ax1.axvline(thresh05, color='r', linestyle='--', label='p=0.05')
+    ax1.axvline(thresh_bon, color='g', linestyle='--', label='Bonferroni')
+
+    # text for counts (count features across all overall pairs that are significant)
+    # We'll count fraction of pairs (by representative p) passing thresholds
+    if len(s_over_labels) > 0:
+        num_sig_05 = np.sum(s_over_vals < 0.05)
+        num_sig_bon = np.sum(s_over_vals < bonferroni_threshold)
+        ax1.text(0.5, 0.05, f'Significant (p<0.05): {num_sig_05}/{len(s_over_labels)}', transform=ax1.transAxes, color='r')
+        ax1.text(0.5, 0.0, f'Significant (Bonferroni): {num_sig_bon}/{len(s_over_labels)}', transform=ax1.transAxes, color='g')
+    ax1.grid(True)
+    ax1.legend()
+
+    # Right: pairwise
+    ax2 = fig.add_subplot(gs[1], sharey=ax1 if len(s_over_labels) == len(s_pair_labels) else None)
+    if len(s_pair_labels) > 0:
+        y_pair = np.arange(len(s_pair_labels))
+        ax2.scatter(x_pair, y_pair)
+        ax2.set_yticks(y_pair)
+        ax2.set_yticklabels(s_pair_labels)
+        ax2.set_xlabel('-log10(p-value)')
+    else:
+        ax2.text(0.5, 0.5, "No pairwise batch comparisons found", ha='center', va='center')
+    ax2.set_title('Pairwise Batch Comparisons (min p across features)')
+    ax2.axvline(thresh05, color='r', linestyle='--', label='p=0.05')
+    ax2.axvline(thresh_bon, color='g', linestyle='--', label='Bonferroni')
+    if len(s_pair_labels) > 0:
+        num_sig_05_pair = np.sum(s_pair_vals < 0.05)
+        num_sig_bon_pair = np.sum(s_pair_vals < bonferroni_threshold)
+        ax2.text(0.6, 0.05, f'Significant (p<0.05): {num_sig_05_pair}/{len(s_pair_labels)}', transform=ax2.transAxes, color='r')
+        ax2.text(0.6, 0.0, f'Significant (Bonferroni): {num_sig_bon_pair}/{len(s_pair_labels)}', transform=ax2.transAxes, color='g')
+    ax2.grid(True)
+    ax2.legend()
+
+    plt.tight_layout()
+    plt.show()
+    return fig
+
+"""----------------------------------------------------------------------------------------------------------------------------"""
+"""---------------------------------------- Plotting functions for Mixed effects model ----------------------------------"""
+"""----------------------------------------------------------------------------------------------------------------------------"""
+@rep_plot_wrapper
+def mixed_effect_model_plot(results: dict, feature_names: list):
+    """
+    Plot the output of the mixed effects model as ordered plots of the -log10 p-values for each feature.
+    Args:
+        results (dict): Output from MixedEffectsModel(...)
+        feature_names (list): List of feature names corresponding to the p-values.
+    Returns:
+        (fig, axes): The matplotlib Figure and dict of axes.
+    """
 
 # %%
