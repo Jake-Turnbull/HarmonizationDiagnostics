@@ -1,0 +1,28 @@
+2025-07-14 14:00:02,681 - INFO - Logging started. Output file: diagnostic_report.txt
+2025-07-14 14:00:02,681 - INFO - Converting categorical batch to numeric codes
+2025-07-14 14:00:02,683 - INFO - Batch categories: [np.str_('A'), np.str_('B')]
+2025-07-14 14:00:02,683 - INFO - Batch converted to numeric codes.
+2025-07-14 14:00:02,683 - INFO - Input validation passed.
+2025-07-14 14:00:02,684 - INFO - DataFrame constructed with features and group labels.
+2025-07-14 14:00:02,684 - INFO - Starting diagnostic report generation.
+2025-07-14 14:00:02,684 - INFO - Analysis started: 2025-07-14 14:00:02.684646
+Number of subjects: 5
+Number of features: 3
+Unique batch: {np.int64(0), np.int64(1)}
+Log location: diagnostic_report.txt
+
+2025-07-14 14:00:02,684 - INFO - Loading diagnostic functions from DiagnoseHarmonization module----------------------------------------------------------------------------
+2025-07-14 14:00:03,968 - INFO - Successfully loaded diagnostic functions from DiagnoseHarmonization module
+2025-07-14 14:00:03,968 - INFO - Performing Cohen's d calculation.
+2025-07-14 14:00:03,968 - INFO - Cohen's d calculation completed.
+2025-07-14 14:00:03,969 - INFO - Cohen's d results added to DataFrame, average Cohen's d for across features is : 0.0 with a variance of 0.0
+2025-07-14 14:00:03,969 - INFO - Performing PCA correlation.
+2025-07-14 14:00:03,976 - INFO - PCA correlation completed.
+2025-07-14 14:00:03,976 - INFO - Pearson correlation of batch with first 3 Principal components results: [-0.58806424 -0.2031029  -0.20803974]
+2025-07-14 14:00:03,976 - INFO - Explained variance for each PC: [69.46667092 26.40975101  4.12357807]
+2025-07-14 14:00:03,976 - INFO - PCA results added to DataFrame.
+2025-07-14 14:00:03,976 - INFO - Performing Mahalanobis distance calculation.
+2025-07-14 14:00:03,976 - INFO - Mahalanobis distance calculation completed.
+2025-07-14 14:00:03,976 - INFO - Mahalanobis distances between batches across features is: {(np.int64(0), np.int64(1)): np.float64(1.1977073538269714)}
+2025-07-14 14:00:03,977 - INFO - Mahalanobis distance results added to DataFrame.
+2025-07-14 14:00:03,977 - INFO - Diagnostic report generation completed.
