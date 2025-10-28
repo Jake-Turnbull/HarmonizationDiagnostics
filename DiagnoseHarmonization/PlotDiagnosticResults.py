@@ -243,9 +243,13 @@ def PC_corr_plot(
 ):
     """
     Generate multiple PCA diagnostic plots and return a list of (caption, fig).
-    Robust handling of variable_names:
-      - If variable_names includes 'batch' as the first name, the rest are treated as covariate names.
-      - Otherwise variable_names is interpreted as covariate names (must match covariates.shape[1]).
+
+    Improvements / behavior:
+      - covariates may be a numpy array (2D), a pandas.DataFrame, or a structured numpy array.
+      - If covariates has column names (DataFrame.columns or structured dtype.names), those names are used.
+      - If covariates is a plain ndarray, variable_names (if provided) will be used as covariate names.
+      - variable_names may optionally include 'batch' as the first element: ['batch', 'Age', 'Sex'].
+      - If no covariate names are available, defaults "Covariate1", "Covariate2", ...
     """
     import numpy as np
     import pandas as pd
@@ -254,7 +258,7 @@ def PC_corr_plot(
 
     figs = []
 
-    # Validation
+    # Basic validation
     if not isinstance(PrincipleComponents, np.ndarray) or PrincipleComponents.ndim != 2:
         raise ValueError("PrincipleComponents must be a 2D numpy array (samples x components).")
     if not isinstance(batch, np.ndarray) or batch.ndim != 1:
@@ -268,48 +272,73 @@ def PC_corr_plot(
     # Build DataFrame of PCs
     PC_Names = [f"PC{i+1}" for i in range(PrincipleComponents.shape[1])]
     df = pd.DataFrame(PrincipleComponents, columns=PC_Names)
-    df["batch"] = batch
 
-    # --- Interpret variable_names robustly ---
-    cov_names = None  # final covariate names we will use to map covariates columns
+    # Decide batch column name (allow variable_names to include 'batch' as first element)
+    batch_col_name = "batch"
+    # If variable_names explicitly provided and starts with "batch", capture it as possible batch name
+    if variable_names is not None and len(variable_names) > 0 and str(variable_names[0]).lower() == "batch":
+        # use the exact provided first name (preserve case) as batch label
+        batch_col_name = variable_names[0]
+    df[batch_col_name] = batch
+
+    # --- Handle covariates robustly and determine covariate names ---
+    cov_names = []
+    cov_matrix = None  # numeric matrix (n_samples x n_covariates) used for correlations/plots
+
     if covariates is not None:
-        covariates = np.asarray(covariates)
-        if covariates.ndim != 2:
-            raise ValueError("covariates must be a 2D array (samples x num_covariates).")
-        if covariates.shape[0] != PrincipleComponents.shape[0]:
-            raise ValueError("Number of rows in covariates must match number of samples.")
-
-        # If user provided variable_names:
-        if variable_names is not None:
-            # Option B: allow variable_names starting with 'batch' followed by covariate names
-            if len(variable_names) == covariates.shape[1]:
-                # user supplied only covariate names (good)
-                cov_names = list(variable_names)
-            elif (
-                len(variable_names) == covariates.shape[1] + 1 and
-                str(variable_names[0]).lower() == "batch"
-            ):
-                # user included 'batch' as first element
-                cov_names = list(variable_names[1:])
-            else:
-                # inconsistent lengths — raise a helpful error
-                raise ValueError(
-                    "variable_names length does not match number of covariates.\n"
-                    f"covariates has {covariates.shape[1]} columns, "
-                    f"but variable_names has length {len(variable_names)}.\n"
-                    "If you include 'batch' in variable_names, put it first (e.g. ['batch', 'Age', 'Sex'])."
-                )
+        # If DataFrame: use its column names
+        if isinstance(covariates, pd.DataFrame):
+            cov_matrix = covariates.values
+            cov_names = list(map(str, covariates.columns))
+        # Structured numpy array with named fields
+        elif isinstance(covariates, np.ndarray) and covariates.dtype.names is not None:
+            cov_names = [str(n) for n in covariates.dtype.names]
+            # stack named columns into a 2D array
+            cov_matrix = np.vstack([covariates[name] for name in cov_names]).T
         else:
-            # no variable_names provided — create defaults
-            cov_names = [f"Covariate{i+1}" for i in range(covariates.shape[1])]
+            # array-like (convert to ndarray)
+            cov_matrix = np.asarray(covariates)
+            if cov_matrix.ndim != 2:
+                raise ValueError("covariates must be 2D (samples x num_covariates).")
+            if cov_matrix.shape[0] != PrincipleComponents.shape[0]:
+                raise ValueError("Number of rows in covariates must match number of samples.")
 
-        # assign covariates to df columns using cov_names
+            # If variable_names provided: it may either be exactly covariate names,
+            # or include 'batch' as first element followed by covariate names.
+            if variable_names is not None:
+                # If user included 'batch' as first element, strip it.
+                if len(variable_names) == cov_matrix.shape[1] + 1 and str(variable_names[0]).lower() == "batch":
+                    cov_names = [str(x) for x in variable_names[1:]]
+                elif len(variable_names) == cov_matrix.shape[1]:
+                    cov_names = [str(x) for x in variable_names]
+                else:
+                    # inconsistent lengths: raise helpful error
+                    raise ValueError(
+                        "variable_names length does not match number of covariates.\n"
+                        f"covariates has {cov_matrix.shape[1]} columns, "
+                        f"but variable_names has length {len(variable_names)}.\n"
+                        "If you include 'batch' in variable_names, put it first (e.g. ['batch', 'Age', 'Sex'])."
+                    )
+            else:
+                # No variable_names: create defaults
+                cov_names = [f"Covariate{i+1}" for i in range(cov_matrix.shape[1])]
+
+        # Finally, assign covariate columns to df using cov_names
+        # (if we reached here cov_matrix and cov_names should be set)
+        if cov_matrix is None:
+            raise ValueError("Unable to interpret covariates input; please supply a DataFrame, structured array, or 2D ndarray.")
+        # Double-check shapes
+        if cov_matrix.shape[0] != PrincipleComponents.shape[0]:
+            raise ValueError("Number of rows in covariates must match number of samples.")
+        if cov_matrix.shape[1] != len(cov_names):
+            # defensive: if Pandas columns count mismatch (shouldn't happen), regenerate names
+            cov_names = [f"Covariate{i+1}" for i in range(cov_matrix.shape[1])]
+
         for i, name in enumerate(cov_names):
-            df[name] = covariates[:, i]
+            df[name] = cov_matrix[:, i]
     else:
-        # no covariates present; ensure variable_names is either None or empty
+        # No covariates present; ensure variable_names is either None or only contains 'batch'
         if variable_names is not None:
-            # if variable_names included 'batch' only, that's okay; ignore it
             if not (len(variable_names) == 1 and str(variable_names[0]).lower() == "batch"):
                 raise ValueError("variable_names provided but covariates is None. Provide covariates or remove variable_names.")
         cov_names = []
@@ -317,7 +346,7 @@ def PC_corr_plot(
     # --- 1) PCA scatter by batch ---
     fig1, ax = plt.subplots(figsize=(8, 6))
     for b in unique_batches:
-        ax.scatter(df.loc[df["batch"] == b, "PC1"], df.loc[df["batch"] == b, "PC2"], label=f"Batch {b}", alpha=0.7)
+        ax.scatter(df.loc[df[batch_col_name] == b, "PC1"], df.loc[df[batch_col_name] == b, "PC2"], label=f"{batch_col_name} {b}", alpha=0.7)
     ax.set_xlabel("Principal Component 1")
     ax.set_ylabel("Principal Component 2")
     ax.set_title("PCA Scatter Plot by Batch")
@@ -330,8 +359,8 @@ def PC_corr_plot(
         for name in cov_names:
             vals = df[name].values
             fig, ax = plt.subplots(figsize=(8, 6))
+            # treat small-unique-count as categorical
             if len(np.unique(vals)) <= 20:
-                # categorical
                 for cat in np.unique(vals):
                     sel = df[name] == cat
                     ax.scatter(df.loc[sel, "PC1"], df.loc[sel, "PC2"], label=f"{name}={cat}", alpha=0.6)
@@ -341,18 +370,21 @@ def PC_corr_plot(
             ax.set_xlabel("Principal Component 1")
             ax.set_ylabel("Principal Component 2")
             ax.set_title(f"PCA Scatter Plot by {name}")
-            ax.legend(loc="best", fontsize="small", frameon=True)
+            # legend can be large; show only for categorical
+            if len(np.unique(vals)) <= 20:
+                ax.legend(loc="best", fontsize="small", frameon=True)
             ax.grid(True)
             figs.append((f"PCA scatter by {name}", fig))
 
     # --- 3) Correlation heatmap if requested ---
     if PC_correlations:
-        if covariates is not None:
-            combined_data = np.column_stack((PrincipleComponents, batch.reshape(-1, 1), covariates))
-            combined_names = PC_Names + ["Batch"] + cov_names
+        # create combined_data and combined_names in the same order used for corr matrix
+        if cov_names:
+            combined_data = np.column_stack((PrincipleComponents, df[batch_col_name].values.reshape(-1, 1), df[cov_names].values))
+            combined_names = PC_Names + [batch_col_name] + cov_names
         else:
-            combined_data = np.column_stack((PrincipleComponents, batch.reshape(-1, 1)))
-            combined_names = PC_Names + ["Batch"]
+            combined_data = np.column_stack((PrincipleComponents, df[batch_col_name].values.reshape(-1, 1)))
+            combined_names = PC_Names + [batch_col_name]
 
         corr = np.corrcoef(combined_data.T)
         fig, ax = plt.subplots(figsize=(10, 8))
@@ -363,7 +395,11 @@ def PC_corr_plot(
     # show only if requested
     if show:
         for _, f in figs:
-            f.show()
+            try:
+                f.show()
+            except Exception:
+                # some backends may not support show on Figure objects; ignore safely
+                pass
 
     return figs
 

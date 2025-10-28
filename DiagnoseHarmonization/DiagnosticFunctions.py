@@ -80,6 +80,23 @@ def Cohens_D(Data, batch_indices, BatchNames=None):
 
         pairwise_d.append(d)
         pair_labels.append((BatchNames_map[g1], BatchNames_map[g2]))
+    
+    # Calculate Cohen's d for each batch and the overall mean
+    overall_mean = np.mean(Data, axis=0)
+    for g in unique_groups:
+        mask = batch_indices == g
+        data_g = Data[mask, :]
+
+        mean_g = np.mean(data_g, axis=0)
+        std_g = np.std(data_g, axis=0, ddof=1)
+
+        pooled_std = np.sqrt((std_g ** 2 + np.var(Data, axis=0, ddof=1)) / 2.0)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            d = (mean_g - overall_mean) / pooled_std
+            d = np.where(np.isnan(d), 0.0, d)  # replace NaNs with 0
+
+        pairwise_d.append(d)
+        pair_labels.append((BatchNames_map[g], 'Overall'))
 
     return np.array(pairwise_d), pair_labels
 

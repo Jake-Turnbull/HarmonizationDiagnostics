@@ -28,14 +28,31 @@ def test_full_pipeline_generates_report(tmp_path = save_dir):
     n_features = 100
 
     data = np.random.randn(n_samples, n_features)
-    covariate_cat = np.random.randint(0, 4, size=n_samples)    # categorical
+    covariate_cat = np.random.randint(0, 1, size=n_samples)    # categorical
+    print( covariate_cat)
+    # Mean center the categorical covariate, testing this as divide by zero errors in PCA correlations otherwise
+    covariate_cat = covariate_cat - np.mean(covariate_cat) # Try mean centering as correlations with PCA not working 27/10/2025
     batch = np.array(["Siemens"] * 20 + ["Philips"] * 20  + ["GE"] * 20  + ["Magnetom"] * 20 )
-    # Shuffle batch
-    np.random.shuffle(batch)
+    # Construct mixed effects model to add some batch and covariate effects
     covariate_cont = np.random.rand(n_samples)                # continuous
     covariates = np.column_stack((covariate_cat, covariate_cont))
-    variable_names = ['Sex', 'Age']  # supports 'batch' as first name per bath
+    variable_names = ['Sex', 'Age']
 
+    for i in range(n_samples):
+        if batch[i] == "Siemens":
+            data[i, :] += 1.0
+        elif batch[i] == "Philips":
+            data[i, :] -= 2.0
+        elif batch[i] == "GE":
+            data[i, :] += 3.0
+        elif batch[i] == "Magnetom":
+            data[i, :] += 4.0
+
+    # Simulate covariate effect of age and sex (when age increases, feature values decrease) 
+    # (when sex = 0/1 (female/male), feature values decrease/increase to simulate volume differences)
+    for i in range(n_samples):
+        data[i, :] += covariates[i, 1] * -0.5 * np.random.rand()  # age effect
+        data[i, :] += 0.5 * np.random.rand()
     # -------------------------
     # Where to save the report
     # -------------------------
@@ -56,13 +73,13 @@ def test_full_pipeline_generates_report(tmp_path = save_dir):
         #                  save_dir=None, SaveArtifacts=False, rep=None, show=False)
         DiagnosticReport.DiagnosticReport(
             data=data,
-            batch=batch,
-            covariates=covariates,
-            covariate_names=variable_names,
-            save_dir=str(out_dir),
-            SaveArtifacts=False,
-            rep=None,
-            show=False
+                batch=batch,
+                    covariates=covariates,
+                        covariate_names=variable_names,
+                            save_dir=str(out_dir),
+                                SaveArtifacts=False,
+                                    rep=None,
+                                        show=False
         )
     except Exception as e:
         # If the pipeline raises, fail the test but show the exception for debugging
