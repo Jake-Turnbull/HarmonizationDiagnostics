@@ -151,6 +151,20 @@ def Cohens_D_plot(
         ax2.set_ylabel("Cohen's d")
         ax2.set_title(f"Effect Size (Cohen's d) for {pair_labels[i]}")
         #fig.tight_layout()
+        ax2.grid(True)
+        # Ensure equal y-limits for fair comparison
+        # Draw horizontal lines for small/medium/large effect sizes, green small, orange medium, red large
+        for thresh, color, label in [ (0.2, 'green', 'Small'), (0.5, 'orange', 'Medium'), (0.8, 'red', 'Large') ]:
+            ax2.axhline(y=thresh, color=color, linestyle='--', linewidth=1)
+            ax2.axhline(y=-thresh, color=color, linestyle='--', linewidth=1)
+            ax2.text(cohens_d.shape[1]-1, thresh, f' {label}', color=color, va='bottom', ha='right', fontsize=8)
+            ax2.text(cohens_d.shape[1]-1, -thresh, f' {label}', color=color, va='top', ha='right', fontsize=8)
+        # Set limits to have equal negatice/positive range around zero
+        ylims = ax2.get_ylim()
+        max_abs = max(abs(ylims[0]), abs(ylims[1]))
+        ax2.set_ylim(-max_abs, max_abs)
+        ax1.set_ylim(-max_abs, max_abs)
+
 
         caption_i = caption or f"Cohen's d — {pair_labels[i]}"
         if rep is not None:

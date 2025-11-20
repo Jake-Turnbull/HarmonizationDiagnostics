@@ -4,9 +4,10 @@ import base64
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 
 import matplotlib.pyplot as plt  # for typing; you can create figures however you like
+
 
 class _MemoryLogHandler(logging.Handler):
     """Collects formatted log records in memory (for embedding in HTML)."""
@@ -18,20 +19,20 @@ class _MemoryLogHandler(logging.Handler):
         msg = self.format(record)
         self.records.append(msg)
 
+    def get_records(self) -> List[str]:
+        return list(self.records)
+
     def get_text(self) -> str:
+        # fallback (not used for structured rendering)
         return "\n".join(self.records)
+
 
 class StatsReporter:
     """
-    Usage:
-        with StatsReporter(save_dir="results", save_artifacts=True) as rep:
-            rep.logger.info("Running t-test on group A vs B...")
-            rep.log_summary("t-test", {"statistic": 2.13, "p": 0.034})
-            fig = make_my_plot()  # returns a matplotlib.figure.Figure
-            rep.log_plot(fig, "QQ plot of residuals")
-
-    - Default: emits a single HTML report with inline (base64) plots.
-    - If save_artifacts=True: also saves PNGs for each plot and a plaintext log file.
+    Enhanced StatsReporter:
+      - log_section(section_id, title): mark a new named section in the log
+      - log_plot(fig, caption, section=None): attach a plot to a section (defaults to last section)
+      - write_report(...) builds a TOC with hyperlinks and places each section's plots immediately after its logs.
     """
     def __init__(
         self,
@@ -41,15 +42,13 @@ class StatsReporter:
         save_artifacts: bool = False,
         logger_name: str = "statsreporter",
         log_level: int = logging.INFO,
+        toc: bool = True,  # new: whether to include a table of contents
     ):
         self.save_dir = Path(save_dir) if save_dir is not None else None
         self.report_name = report_name
         self.plaintext_log_name = plaintext_log_name
         self.save_artifacts = save_artifacts
-
-        # Prepare containers
-        self._plots: List[Tuple[str, str]] = []  # (caption, base64_png)
-        self._artifacts_paths: List[Path] = []
+        self._include_toc = toc
 
         # Create logger
         self.logger = logging.getLogger(logger_name + f".{id(self)}")
@@ -66,6 +65,7 @@ class StatsReporter:
 
         # Optional plaintext file handler (only when saving artifacts)
         self._file_handler: Optional[logging.Handler] = None
+        self._artifacts_paths: List[Path] = []
         if self.save_artifacts and self.save_dir is not None:
             self.save_dir.mkdir(parents=True, exist_ok=True)
             logfile = self.save_dir / self.plaintext_log_name
@@ -74,7 +74,31 @@ class StatsReporter:
             self._file_handler.setFormatter(self._fmt)
             self.logger.addHandler(self._file_handler)
             self._artifacts_paths.append(logfile)
-            
+
+        # Section bookkeeping:
+        # list of tuples in the order created: (section_id, title, start_index_in_records)
+        self._sections: List[Tuple[str, str, int]] = []
+        # mapping section_id -> list of (caption, base64_png)
+        self._section_plots: Dict[str, List[Tuple[str, str]]] = {}
+        # plots that were logged before any section was created or explicitly placed
+        self._unplaced_plots: List[Tuple[str, str]] = []
+
+    # ---------------- Logging helpers ------------------------------------
+
+    def log_section(self, section_id: str, title: str):
+        """
+        Start a named section. The section_id should be unique-ish (used for anchors).
+        Logs a header line (so it appears in the plaintext log too).
+        """
+        # sanitize section id for anchor usage (simple)
+        sec = "".join(c if (c.isalnum() or c in ("-", "_")) else "_" for c in section_id)
+        start_index = len(self._mem_handler.records)
+        self._sections.append((sec, title, start_index))
+        # initialize plots list
+        self._section_plots.setdefault(sec, [])
+        # Also write a clear header line into the text log
+        self.logger.info(f"[SECTION] {title}")
+
     def log_summary(self, test_name: str, summary: dict):
         """
         Write a one-line header + pretty key/val summary via logger.
@@ -95,19 +119,38 @@ class StatsReporter:
         self.logger.log(level, message)
         self._mem_handler.setFormatter(fmt_backup)
 
-
-    def log_plot(self, fig, caption: str = "Plot"):
+    def log_plot(self, fig, caption: str = "Plot", section: Optional[str] = None):
         """
-        Accepts a matplotlib Figure, embeds it into the HTML report,
-        and (optionally) saves it as a PNG in save_dir when save_artifacts=True.
+        Accepts a matplotlib Figure, attaches it to a section (or last section if None),
+        embeds it into the HTML report, and (optionally) saves it as a PNG in save_dir when save_artifacts=True.
         """
         # Save to a bytes buffer (PNG) and base64-encode for inline HTML
         buf = io.BytesIO()
-        #fig.tight_layout() # Check as throws warning with some figures...
         fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
         buf.seek(0)
         b64 = base64.b64encode(buf.read()).decode("ascii")
-        self._plots.append((caption, b64))
+
+        # determine destination section
+        target_section = None
+        if section is not None:
+            sec = "".join(c if (c.isalnum() or c in ("-", "_")) else "_" for c in section)
+            if any(s[0] == sec for s in self._sections):
+                target_section = sec
+            else:
+                # unknown section => create it at current position
+                self._sections.append((sec, section, len(self._mem_handler.records)))
+                self._section_plots.setdefault(sec, [])
+                target_section = sec
+        else:
+            # use last section if present
+            if self._sections:
+                target_section = self._sections[-1][0]
+
+        if target_section is None:
+            # no section to attach to -> store as unplaced
+            self._unplaced_plots.append((caption, b64))
+        else:
+            self._section_plots.setdefault(target_section, []).append((caption, b64))
 
         # Save PNG of figure to same directory if save_artifacts==true
         if self.save_artifacts and self.save_dir is not None:
@@ -116,6 +159,8 @@ class StatsReporter:
             fig.savefig(outpath, format="png", dpi=150, bbox_inches="tight")
             self._artifacts_paths.append(outpath)
             self.logger.info(f"[ARTIFACT] Saved plot: {outpath}")
+
+    # ---------------- Report writing ------------------------------------
 
     def write_report(self, path: Optional[os.PathLike] = None) -> Path:
         """
@@ -127,10 +172,14 @@ class StatsReporter:
         if path.parent:
             path.parent.mkdir(parents=True, exist_ok=True)
 
-        html = self._render_html(
+        # Use the structured renderer that has access to raw records and sections
+        html = self._render_html_structured(
             title="Statistical Tests Report",
-            log_text=self._mem_handler.get_text(),
-            plots=self._plots,
+            records=self._mem_handler.get_records(),
+            sections=self._sections,
+            section_plots=self._section_plots,
+            unplaced_plots=self._unplaced_plots,
+            toc=self._include_toc,
         )
         path.write_text(html, encoding="utf-8")
         return path
@@ -151,10 +200,10 @@ class StatsReporter:
         self.logger.info(f"save_artifacts={self.save_artifacts} | save_dir={self.save_dir}")
         return self
 
-    # Exit messages defined seperately from function, keep to logging tool (maybe rethink later?)
     def __exit__(self, exc_type, exc, tb):
-        if exc:
-            self.logger.exception("Exception during reporting", exc_info=(exc_type, exc, tb))
+        if exc_type:
+            # preserve exception info in the plaintext log
+            self.logger.exception("Exception during reporting", exc_info=(exc_type, exc_type, tb))
         self.logger.info("=== Report session finished ===")
         # Always write/update the report on exit
         report = self.write_report()
@@ -180,22 +229,82 @@ class StatsReporter:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         return f"{ts}_{safe}.png"
 
-    # From GPT - 5\/ HTML set up 
     @staticmethod
-    def _render_html(title: str, log_text: str, plots: List[Tuple[str, str]]) -> str:
-        # Very small self-contained HTML
-        plot_sections = "\n".join(
-            f"""
-            <figure>
-              <img src="data:image/png;base64,{b64}" alt="{caption}" />
-              <figcaption>{caption}</figcaption>
-            </figure>
-            """
-            for caption, b64 in plots
-        )
-        log_html = "<pre style='white-space:pre-wrap;margin:0'>" + (
-            (log_text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        ) + "</pre>"
+    def _render_html_structured(
+        title: str,
+        records: List[str],
+        sections: List[Tuple[str, str, int]],
+        section_plots: Dict[str, List[Tuple[str, str]]],
+        unplaced_plots: List[Tuple[str, str]],
+        toc: bool = True,
+    ) -> str:
+        """Render an HTML string with:
+           - top Table of Contents linking to section anchors (if toc=True),
+           - logs arranged by section, and each section's plots inserted right after the section logs.
+        """
+        # Build a simple TOC
+        toc_html = ""
+        if toc and sections:
+            toc_items = []
+            for sec_id, title, _ in sections:
+                toc_items.append(f'<li><a href="#sec_{sec_id}">{title}</a></li>')
+            toc_html = "<nav><h2>Contents</h2><ul>" + "\n".join(toc_items) + "</ul></nav>"
+
+        # Build section boundaries: sort sections by their start index
+        sections_sorted = sorted(sections, key=lambda x: x[2])
+
+        # We'll iterate through record indices and allocate ranges to sections
+        html_pieces = []
+        current_idx = 0
+        for i, (sec_id, title, start_idx) in enumerate(sections_sorted):
+            # logs from current_idx up to start_idx belong to "pre-section" (or previous sections)
+            if start_idx > current_idx:
+                chunk = records[current_idx:start_idx]
+                html_pieces.append(_render_log_chunk(chunk))
+                current_idx = start_idx
+
+            # logs for this section: from start_idx up to next_section_start (or until end)
+            next_start = sections_sorted[i + 1][2] if i + 1 < len(sections_sorted) else len(records)
+            section_chunk = records[start_idx:next_start]
+            # Render section header + logs
+            section_html = f'<section id="sec_{sec_id}" class="section"><h2>{title}</h2>'
+            section_html += _render_log_chunk(section_chunk)
+            # add plots for this section (if any)
+            plots = section_plots.get(sec_id, [])
+            if plots:
+                section_html += "<div class='plots'>"
+                for caption, b64 in plots:
+                    section_html += f"""
+                    <figure>
+                      <img src="data:image/png;base64,{b64}" alt="{caption}" />
+                      <figcaption>{caption}</figcaption>
+                    </figure>
+                    """
+                section_html += "</div>"
+            section_html += "</section>"
+            html_pieces.append(section_html)
+            current_idx = next_start
+
+        # Any remaining logs after last section
+        if current_idx < len(records):
+            tail_chunk = records[current_idx:]
+            html_pieces.append(_render_log_chunk(tail_chunk))
+
+        # Unplaced plots (those without a section)
+        unplaced_html = ""
+        if unplaced_plots:
+            unplaced_html = "<section id='unplaced_plots' class='section'><h2>Unplaced plots</h2><div class='plots'>"
+            for caption, b64 in unplaced_plots:
+                unplaced_html += f"""
+                <figure>
+                  <img src="data:image/png;base64,{b64}" alt="{caption}" />
+                  <figcaption>{caption}</figcaption>
+                </figure>
+                """
+            unplaced_html += "</div></section>"
+
+        # Combine into final HTML
+        html_body = "\n".join([toc_html] + html_pieces + ([unplaced_html] if unplaced_html else []))
 
         return f"""<!doctype html>
 <html>
@@ -208,74 +317,24 @@ class StatsReporter:
     figure {{ margin: 0 0 1.5rem 0; }}
     img {{ max-width: 100%; height: auto; display: block; }}
     figcaption {{ color: #555; font-size: 0.9rem; margin-top: 0.25rem; }}
-    .log {{ background: #f6f8fa; border: 1px solid #e5e7eb; padding: 1rem; border-radius: 8px; }}
+    .log {{ background: #f6f8fa; border: 1px solid #e5e7eb; padding: 1rem; border-radius: 8px; white-space: pre-wrap; }}
     .section {{ margin-bottom: 2rem; }}
+    nav ul {{ margin: 0 0 1rem 1.25rem; }}
+    nav li {{ margin: 0.25rem 0; }}
   </style>
 </head>
 <body>
   <h1>{title}</h1>
-  <div class="section log">
-    <h2>Log</h2>
-    {log_html}
-  </div>
-  <div class="section">
-    <h2>Plots</h2>
-    {plot_sections or "<p><em>No plots logged.</em></p>"}
-  </div>
+  {html_body}
 </body>
 </html>
 """
 
 
-from pathlib import Path
-from datetime import datetime
-
-def set_report_path(report, save_dir: str | None = None, report_name: str | None = None, timestamp: bool = True):
-    """
-    Configure and initialize the output HTML diagnostic report file.
-
-    Args:
-        report (StatsReporter): The active StatsReporter instance (from 'with StatsReporter(...) as report').
-        save_dir (str | Path | None): Directory where the HTML report should be saved.
-                                      Defaults to the current working directory.
-        report_name (str | None): Optional base name for the HTML file.
-                                  Default is 'DiagnosticReport.html' (or timestamped version if timestamp=True).
-        timestamp (bool): Whether to append a timestamp to the file name (default: True).
-
-    Returns:
-        Path: The full path to the HTML report file.
-    """
-    import os
-
-    # Determine save directory
-    if save_dir is None:
-        save_dir = os.getcwd()
-
-    save_dir = Path(save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    # Add timestamp if requested
-    if timestamp:
-        stem, ext = os.path.splitext(report_name)
-        timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        report_name = f"{stem}_{timestamp_str}{ext}"
-
-    # Full report path
-    report_path = save_dir / report_name
-
-    # Tell the StatsReporter to use this path
-    report.report_name = report_name
-    report.save_dir = save_dir
-    report.write_report(report_path)
-
-    # Log this info into the HTML and console
-    report.log_text(f"Initialized HTML report at: {report_path}")
-    print(f"Report will be saved to: {report_path}")
-
-    return report_path
-
-import inspect
-from functools import wraps
-from typing import Any, Callable, List, Tuple, Optional
-import matplotlib.pyplot as plt
-import matplotlib.figure as mfig
+def _render_log_chunk(records: List[str]) -> str:
+    # Escape HTML characters in each record and join into a single pre block
+    safe_lines = []
+    for r in records:
+        safe = (r or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        safe_lines.append(safe)
+    return "<div class='log'><pre style='margin:0'>" + "\n".join(safe_lines) + "</pre></div>"
