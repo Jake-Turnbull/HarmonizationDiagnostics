@@ -1,6 +1,6 @@
 # DiagnoseHarmonize version 0.0.1
 
-DiagnoseHarmonize is an in-development library for the streamline application and assesment of harmonization algorithms at the summary measure level, as well as the establishment of a centralised location for popular existing harmonization methods that are well validated within the literature.
+DiagnoseHarmonize is an **In-development** library for the streamline application and assesment of harmonization algorithms at the summary measure level, as well as the establishment of a centralised location for popular existing harmonization methods that are well validated within the literature.
 We plan to show in an upcoming paper that the systematic evaluation of different components of the batch effect and subsequent reporting is not only beneficial for choosing a good harmonisation strategy, but essential for evaluating how well it has worked.
 
 Load in different components of the module by calling:
@@ -14,7 +14,7 @@ Gaurav Bhalerao: [Gaurav.bhalerao@ndcn.ox.ac.uk](Gaurav.bhalerao@ndcn.ox.ac.uk)
 
 ## Overview
 
-This library was developed for the streamline analysis and application of harmonisation for MRI data. Consistent reporting of the different components of batch differences should be carried out both pre and post harmonisation both in order to confirm that harmonisation has been successful but also that harmonisation was needed. While this tool was developed for MRI data, there is no reason why it cannot be used in other research scenarios.
+This library is intended for the streamline analysis and application of harmonisation for MRI data. Consistent reporting of the different components of batch differences should be carried out both pre and post harmonisation both in order to confirm that harmonisation has been successful but also that harmonisation was needed. While this tool was developed for MRI data, there is no reason why it cannot be used in other research scenarios.
 
 The purpose of harmonisation is to remove technical variation that is driven by differences in how the data was acquired (e.g from different sites) and is seperate from any signals of interest. This must be done while preserving important biological signals in the data.
 
