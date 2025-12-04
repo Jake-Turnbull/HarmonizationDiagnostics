@@ -68,5 +68,5 @@ print(final_data)
 # Apply ComBat
 # Transpose the data to match ComBat expectations (samples x features)
 
-harmonized_data, delta_star, gamma_star = HarmonizationFunctions.combat_modified(final_data, batch, covariates, parametric=True, DeltaCorrection=True, UseEB=True, ReferenceBatch=None, RegressCovariates=False, GammaCorrection=True)
+harmonized_data, delta_star, gamma_star = HarmonizationFunctions.combat(final_data, batch, covariates, parametric=True, DeltaCorrection=True, UseEB=True, ReferenceBatch=None, RegressCovariates=False, GammaCorrection=True)
 print("Harmonized data (samples x features):")

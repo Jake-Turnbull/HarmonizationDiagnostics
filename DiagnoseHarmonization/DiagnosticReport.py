@@ -401,7 +401,7 @@ def CrossSectionalReport(
                 n_pcs_for_clustering = 2
             logger.info(f"Number of PCs to explain 70% variance: {n_pcs_for_clustering}")
             n_clusters_for_kmeans = unique_batches.shape[0]
-            PlotDiagnosticResults.pc_clustering_diagnostics(
+            PlotDiagnosticResults.pc_clustering_plot(
                 PrincipleComponents=score,
                 batch=batch,
                 covariates=covariates,

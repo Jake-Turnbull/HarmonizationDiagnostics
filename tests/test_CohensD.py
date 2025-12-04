@@ -27,7 +27,7 @@ def test_cohens_d():
     #list: Pair labels, each as a tuple of (name1, name2).
     assert type(a) == np.ndarray
     assert type(b) == list
-    assert np.size(a) == 60  # 3 pairs for each of the 10 features and each batch to average
+    assert np.size(a) == 30  # 3 pairs for each of the 10 features and each batch to average
 
 
 
