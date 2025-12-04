@@ -13,52 +13,21 @@ batch = np.array([0,0,0,0,0,1,1,1,1,1])
 #%%
 
 def test_cohens_d():
-    group = np.random.rand(10,100)
-    batch = np.array([0,0,0,0,0,1,1,1,1,1])
-    a,b = DiagnosticFunctions.Cohens_D(group, batch)
-    assert np.size(a) ==100
-    print("Tested Cohen's D function successfully.")
-
-#%%
-import random
-import numpy as np
-from DiagnoseHarmonization import DiagnosticFunctions
-
-group = np.random.rand(15,100)
-batch = np.array([0,0,0,0,0,1,1,1,1,1,2,2,2,2,2])
-print(np.shape(group))
-print(np.shape(batch))
-(cohens_d, labels) = DiagnosticFunctions.Cohens_D(group, batch)
-print(np.shape(cohens_d))
-
-from DiagnoseHarmonization import PlotDiagnosticResults
-PlotDiagnosticResults.Cohens_D_plot(cohens_d,labels)
-print("Plotted Cohen's D successfully.")
-plt.close("all")
-
-
-#%%
-from DiagnoseHarmonization import PlotDiagnosticResults
-
-def test_cohens_d_plot():
-    from DiagnoseHarmonization import DiagnosticFunctions
-    import pandas as pd
-    import numpy as np
-    import matplotlib.pyplot as plt
-    group = np.random.rand(10,100)
-    batch = np.array([0,0,0,0,0,1,1,1,1,1])
-    (cohens_d, labels) = DiagnosticFunctions.Cohens_D(group, batch)
-    #df = pd.DataFrame({'CohensD': cohens_d})
+    # Create a single vector with array with 3 groups:
+    data = np.random.rand(100,10)  # 100 samples, 10 features
+    batch = np.array([0]*30 + [1]*40 + [2]*30)  # 3 batches
     
-    # Test if the function runs without errors
-    try:
-        PlotDiagnosticResults.Cohens_D_plot(cohens_d,labels,df=None)
-    except Exception as e:
-        assert False, f"CohensD function raised an exception: {e}"
+    # Add a binary batch effect to the data 
+    data[batch == 1] += 0.5  # Shift batch 1
+    data[batch == 2] += 1.0  # Shift batch 2
 
-    # Check if the plot is created (this is a basic check)
-    #assert plt.fignum_exists(1), "Plot was not created"
-    #return df
-    print("Tested Cohen's D plot function with multiple batches successfully.")
-    plt.close("all")
-#%%
+    a,b = DiagnosticFunctions.Cohens_D(data, batch)
+    # Output: 
+    # np.ndarray: Cohen's d values, shape = (num_pairs, num_features).
+    #list: Pair labels, each as a tuple of (name1, name2).
+    assert type(a) == np.ndarray
+    assert type(b) == list
+    assert np.size(a) == 60  # 3 pairs for each of the 10 features and each batch to average
+
+
+

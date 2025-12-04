@@ -77,7 +77,7 @@ def test_full_pipeline_generates_report(tmp_path = save_dir):
         # DiagnosticReport(data, batch, covariates=None, variable_names=None,
         #                  save_dir=None, SaveArtifacts=False, rep=None, show=False)
         from DiagnoseHarmonization import DiagnosticReport
-        DiagnosticReport.DiagnosticReport(
+        DiagnosticReport.CrossSectionalReport(
             data=data, # Required: data matrix (samples x features)
                 batch=batch, # Required: batch vector (samples,)
                     covariates=covariates, # Optional: covariate matrix (samples x covariates)
@@ -89,6 +89,7 @@ def test_full_pipeline_generates_report(tmp_path = save_dir):
                                     rep=None, # Optional: report object
                                         show=False, # Whether to display the report, default False
                                         timestamped_reports=timestamped_reports # Whether to use timestamped report names
+                                            
         )
 
     except Exception as e:

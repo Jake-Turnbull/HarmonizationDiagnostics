@@ -8,6 +8,31 @@ from typing import List, Optional, Tuple, Dict
 
 import matplotlib.pyplot as plt  # for typing; you can create figures however you like
 
+"""LoggingTool.py:
+
+Enhanced logging and HTML report generation for diagnostic reports.
+Provides the StatsReporter class that allows logging text and plots,
+organizing them into sections, and writing a structured HTML report with
+a table of contents.
+
+Functions:
+- log_section(section_id, title): mark a new named section in the log
+- log_plot(fig, caption, section=None): attach a plot to a section (defaults to last section)
+- write_report(...) builds a TOC with hyperlinks and places each section's plots immediately after its logs.
+
+To start using the StatsReporter, create an instance (optionally with save_dir and report_name),
+then use it as a context manager:
+    E.G: 
+    with StatsReporter(save_dir="reports", report_name="diagnostic_report.html") as reporter:
+        reporter.log_section("batch_effects", "Batch Effects Analysis")
+        reporter.log_text("Analyzing batch effects...")
+        fig = plt.figure()
+        # ... create plot ...
+        reporter.log_plot(fig, "Batch Effects Plot")
+        reporter.log_summary("Batch Effects Summary", {"Effect Size": 0.8, "p-value": 0.01})
+    This will automatically write the report upon exiting the context.
+"""
+
 
 class _MemoryLogHandler(logging.Handler):
     """Collects formatted log records in memory (for embedding in HTML)."""

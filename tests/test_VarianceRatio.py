@@ -6,7 +6,7 @@ def test_variance_ratio_two_batches():
 
     group = np.random.rand(10,100)
     batch = np.array([0,0,0,0,0,1,1,1,1,1])
-    variance_ratio = DiagnosticFunctions.Variance_ratios(group, batch)
+    variance_ratio = DiagnosticFunctions.Variance_Ratios(group, batch)
     pprint.pprint(variance_ratio)
 
 test_variance_ratio_two_batches()
@@ -19,7 +19,7 @@ def test_variance_ratio_multiple_batches():
 
     group = np.random.rand(15,100)
     batch = np.array([0,0,0,0,0,1,1,1,1,1,2,2,2,2,2])
-    variance_ratio = DiagnosticFunctions.Variance_ratios(group, batch)
+    variance_ratio = DiagnosticFunctions.Variance_Ratios(group, batch)
     pprint.pprint(variance_ratio)
 
 test_variance_ratio_multiple_batches()
@@ -36,7 +36,7 @@ def test_variance_ratio_plot():
     batch = np.array([0]*200 + [1]*200 + [2]*200)
     # 3 batches
   
-    variance_ratio = DiagnosticFunctions.Variance_ratios(group, batch)
+    variance_ratio = DiagnosticFunctions.Variance_Ratios(group, batch)
     pprint.pprint(variance_ratio)
     labels = [f"Batch {b1} vs Batch {b2}" for (b1,b2) in variance_ratio.keys()]
 

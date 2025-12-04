@@ -10,7 +10,7 @@ from DiagnoseHarmonization import DiagnosticFunctions
 from DiagnoseHarmonization import PlotDiagnosticResults
 from DiagnoseHarmonization.LoggingTool import StatsReporter
 
-def DiagnosticReport(
+def CrossSectionalReport(
     data,
     batch,
     covariates=None,
@@ -21,6 +21,7 @@ def DiagnosticReport(
     report_name: str | None = None,
     SaveArtifacts: bool = False,
     rep= None,
+    power_analysis: bool = False,
     show: bool = False,
     timestamped_reports: bool = True,
 ):
@@ -33,7 +34,7 @@ def DiagnosticReport(
         used as a context manager (so it will be closed automatically).
     """
 
-    # Sanitise inputs and defaults
+    # Check inputs and revert to defaults as needed
     if save_dir is None:
         save_dir = Path.cwd()
     else:
@@ -138,6 +139,17 @@ def DiagnosticReport(
         report.text_simple(" The order of tests is as follows: Additive tests, Multiplicative tests, Tests of distribution")
         report.text_simple(line_break_in_text)
 
+        report.log_section("Z-score visualization", "Z-score normalization visualization")
+
+        logger.info("Generating Z-score normalization visualization")
+        report.text_simple("Z-score normalization (median-centred) visualization across batches, " \
+        "the further the histograms are apart, the larger the mean batch differences on average across features." \
+        "We show also here a heatmap sorted by batch for further visualisation of batch effects, " \
+        "larger blocks of similar colours that are far from zero indicate larger batch effects compared to average across batches ")
+        zscored_data = DiagnosticFunctions.z_score(data)
+        PlotDiagnosticResults.Z_Score_Plot(zscored_data, batch, rep=report)
+        report.log_text("Z-score normalization visualization added to report")
+        report.text_simple(line_break_in_text)
         # ---------------------
         # Additive tests
         # ---------------------
@@ -170,7 +182,7 @@ def DiagnosticReport(
         # Mahalanobis
         report.log_section("mahalanobis", "Mahalanobis distance test")
         logger.info("Doing Mahalanobis distance test for multivariate mean differences")
-        mahalanobis_results = DiagnosticFunctions.MahalanobisDistance(data, batch, covariates=covariates)
+        mahalanobis_results = DiagnosticFunctions.Mahalanobis_Distance(data, batch, covariates=covariates)
         report.log_text("Mahalanobis distance test for multivariate mean differences completed")
         PlotDiagnosticResults.mahalanobis_distance_plot(mahalanobis_results, rep=report)
         report.log_text("Mahalanobis distance plot added to report")
@@ -196,12 +208,98 @@ def DiagnosticReport(
 
         report.text_simple(line_break_in_text)
 
+
+        # ---------------------
+        # Mixed model tests
+        # ---------------------
+        logger.info("Beginning LMM diagnostics")
+        report.log_section("lmm_diagnostics", "Linear mixed effects diagnostics (batch + covariates)")
+        report.text_simple("Fitting per-feature LMMs (random intercept for batch). Where LMM fails or batch variance is zero we fallback to OLS fixed-effects.")
+
+        # run LMM diagnostics
+        lmm_results_df, lmm_summary = DiagnosticFunctions.Run_LMM(data, batch, covariates=covariates,
+                                                feature_names=None,
+                                                covariate_names=covariate_names,
+                                                min_group_n=2)
+
+        report.text_simple("LMM diagnostics completed.")
+        report.log_text("LMM results table added to report")
+
+        # add summary text
+        report.text_simple(
+            f"Number of features analyzed: {lmm_summary.get('n_features', 0)}\n"
+            f"Features where LMM succeeded: {lmm_summary.get('succeeded_LMM', 0)}\n"
+            f"Features using fallback (OLS or skipped): {lmm_summary.get('used_fallback', 0)}"
+        )
+
+        # list common notes
+        note_lines = []
+        for tag, count in sorted(lmm_summary.items(), key=lambda x: -x[1])[:10]:
+            if tag == 'n_features':
+                continue
+            note_lines.append(f"{tag}: {count}")
+        report.text_simple("LMM diagnostics notes (top):\n" + "\n".join(note_lines))
+
+        # Save DF if needed
+        if save_data:
+            data_dict['LMM_results_df'] = lmm_results_df
+            data_dict['LMM_summary'] = lmm_summary
+        
+        report.text_simple("Histogram of ICC (proportion of variance explained by batch):")
+        # How to interpret ICC:
+        report.text_simple("Intraclass Correlation Coefficient (ICC) is the ratio of variance due to batch effects to the total variance (batch + residual). \n" 
+        "It quantifies the extent to which batch membership explains variability in the data.")
+        report.text_simple(
+            "Interpretation of ICC values:\n"
+            "- ICC close to 0: Little to no variance explained by batch; suggests minimal batch effect.\n"
+            "- ICC around 0.1-0.3: Small batch effect; may be acceptable depending on context.\n"
+            "- ICC around 0.3-0.5: Moderate batch effect; consider further investigation or correction.\n"
+            "- ICC above 0.5: Strong batch effect; likely requires correction to avoid confounding.\n"
+        )
+        try:
+            icc_nonan = lmm_results_df['ICC'].dropna()
+            if len(icc_nonan) > 0:
+                plt.figure(figsize=(6, 3))
+                plt.hist(icc_nonan, bins=30)
+                plt.title("Distribution of ICC across features")
+                report.log_plot(plt, caption="Histogram of ICC (batch variance proportion)")
+                plt.close()
+        except Exception:
+            logger.exception("Could not produce ICC histogram")
+
+        # Plot ICC per feature, use simple bar plot for now, replace with plotting functions at later date:
+        if len(icc_nonan) > 0:
+            plt.figure(figsize=(10, 4))
+            plt.bar(range(len(icc_nonan)), icc_nonan)
+            plt.xlabel("Feature index")
+            plt.ylabel("ICC")
+            plt.title("ICC values per feature")
+            report.log_plot(plt, caption="ICC values per feature")
+            plt.close()
+
+        # Plot conditional and marginal R^2 per feature, indicate what each means for interpretation
+        report.text_simple("Marginal R² represents the variance explained by fixed effects (covariates)\n"
+                           "while Conditional R² represents the variance explained by both fixed and random effects (batch + covariates).")
+        lmm_r = lmm_results_df[['R2_marginal', 'R2_conditional']].dropna()
+        if len(lmm_r) > 0:
+            plt.figure(figsize=(10, 4))
+            plt.plot(lmm_r['R2_marginal'].values, label='Marginal R²', alpha=0.7)
+            plt.plot(lmm_r['R2_conditional'].values, label='Conditional R²', alpha=0.7)
+            plt.xlabel("Feature index")
+            plt.ylabel("R² value")
+            plt.title("Marginal and Conditional R² values per feature")
+            plt.legend()
+            report.log_plot(plt, caption="Marginal and Conditional R² values per feature")
+            plt.close()
+
+        # ---------------------
+
         # ---------------------
         # Multiplicative tests
         # ---------------------
         report.log_section("levene", "Levene (Brown-Forsythe) test for variance differences")
         logger.info("Levene's test for variance differences")
-        levene_results = DiagnosticFunctions.Levene_test(data, batch, centre="median")
+        levene_results = DiagnosticFunctions.Levene_Test(data, batch, centre="median")
         report.log_text("Levene's test for variance differences completed")
         # Plot for Levene if implemented in PlotDiagnosticResults
         try:
@@ -215,7 +313,7 @@ def DiagnosticReport(
         # Variance ratio
         report.log_section("variance_ratio", "Variance ratio test (pairwise)")
         logger.info("Variance ratio test between each unique batch pair")
-        variance_ratio = DiagnosticFunctions.Variance_ratios(data, batch, covariates=covariates)
+        variance_ratio = DiagnosticFunctions.Variance_Ratios(data, batch, covariates=covariates)
         report.log_text("Variance ratio test between each unique batch pair completed")
 
         labels = [f"Batch {b1} vs Batch {b2}" for (b1, b2) in variance_ratio.keys()]
@@ -261,7 +359,7 @@ def DiagnosticReport(
         summary_df = pd.DataFrame(summary_rows)
         PlotDiagnosticResults.variance_ratio_plot(ratio_array, labels, rep=report)
         report.log_text("Variance ratio plot(s) added to report")
-
+    
         report.text_simple(line_break_in_text)
 
         # ---------------------
@@ -279,7 +377,7 @@ def DiagnosticReport(
             covariate_names = ["batch"]
 
         variable_names = ["batch"] + covariate_names
-        explained_variance, score, batchPCcorr, pca = DiagnosticFunctions.PcaCorr(
+        explained_variance, score, batchPCcorr, pca = DiagnosticFunctions.PC_Correlations(
             data, batch, covariates=covariates, variable_names=variable_names
         )
 
@@ -302,13 +400,14 @@ def DiagnosticReport(
             if n_pcs_for_clustering < 2:
                 n_pcs_for_clustering = 2
             logger.info(f"Number of PCs to explain 70% variance: {n_pcs_for_clustering}")
+            n_clusters_for_kmeans = unique_batches.shape[0]
             PlotDiagnosticResults.pc_clustering_diagnostics(
                 PrincipleComponents=score,
                 batch=batch,
                 covariates=covariates,
                 variable_names=covariate_names,
                 n_pcs_for_clustering=n_pcs_for_clustering,
-                n_clusters_for_kmeans=n_pcs_for_clustering - 1,
+                n_clusters_for_kmeans=n_clusters_for_kmeans,
                 rep=report,
                 random_state=0,
                 show=False,
@@ -325,7 +424,7 @@ def DiagnosticReport(
         # ---------------------
         report.log_section("ks", "Two-sample Kolmogorov-Smirnov tests")
         logger.info("Two-sample Kolmogorov-Smirnov test for distribution differences between each unique batch pair")
-        ks_results = DiagnosticFunctions.KS_test(data, batch, feature_names=None)
+        ks_results = DiagnosticFunctions.KS_Test(data, batch, feature_names=None)
         report.log_text("Two-sample Kolmogorov-Smirnov test completed")
 
         for key, value in ks_results.items():
@@ -366,7 +465,25 @@ def DiagnosticReport(
                 writer = csv.DictWriter(csvfile, fieldnames=list(serializable.keys()))
                 writer.writeheader()
                 writer.writerow(serializable)
+        
+        report.log_section("Summary","Summary of Diagnostic Report and Advice")
 
+        # Report the major findings in brief and provide advice on harmonisation method to apply in this context
+        # Summarise the biggest additive differences between batches (Cohen's d, Mahalanobis)
+
+        # Check size of each batch
+        batch_sizes = {b: np.sum(batch == b) for b in unique_batches}
+        min_batch_size = min(batch_sizes.values())
+        max_batch_size = max(batch_sizes.values())
+
+        # Check if large differences in batch sizes (if the difference between smallest and largest batch is more than double)
+        if max_batch_size > 2 * min_batch_size:
+            report.text_simple(
+                f"Note: Large differences in batch sizes detected (smallest batch size: {min_batch_size}, largest batch size: {max_batch_size}). "
+                "When applying harmonisation, be aware that most methods will apply a greater correction to smaller batches. " \
+                "This isn't inherently problematic but may not be exactly what you want so proceed with caution or consider using the larger batch as a reference batch explicitly so that it remains unchanged in harmonisation"
+            )
+        
         return data_dict if save_data else None
 
     finally:
@@ -374,3 +491,4 @@ def DiagnosticReport(
         if created_local_report:
             # call __exit__ on the context-managed report (no exception info)
             report_ctx.__exit__(None, None, None)  # type: ignore
+

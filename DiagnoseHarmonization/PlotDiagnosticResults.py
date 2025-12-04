@@ -9,6 +9,7 @@ from functools import wraps
 from typing import Any, Callable, List, Tuple, Optional
 import matplotlib.pyplot as plt
 import matplotlib.figure as mfig
+from scipy import stats
 
 def _is_figure(obj) -> bool:
     return isinstance(obj, mfig.Figure)
@@ -105,6 +106,21 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from collections.abc import Sequence
+
+"""
+    Complementary plotting functions for the functions in DiagnosticFunctions.py
+
+    Functions:
+    - Z_Score_Plot: Plot histogram and heatmap of Z-scored data by batch.
+    - Cohens_D_plot: Plot Cohen's d effect sizes with histograms.
+    - variance_ratio_plot: Plot variance ratios between batches.
+    - PC_corr_plot: Generate PCA diagnostic plots including scatter plots and correlation heatmaps.
+    - PC_clustering_plot: K-means clustering and silhouette analysis of PCA results by batch.
+    - Ks_Plot: Plot KS statistic between batches.
+    - 
+
+
+"""
 """----------------------------------------------------------------------------------------------------------------------------"""
 """---------------------------------------- Plotting functions for Cohens D results ----------------------------------"""
 """----------------------------------------------------------------------------------------------------------------------------"""
@@ -114,6 +130,84 @@ import numpy as np
 from typing import Optional
 import pandas as pd
 
+@rep_plot_wrapper
+def Z_Score_Plot(data, batch, probablity_distribution=False,draw_PDF=True):
+    """
+    Plots the median centered Z-score data as a heatmap and as a histogram of all scores.
+    Re-order by batch for better visualisaion in the heatmap, also plot batch seperators on heatmap.
+    Args:
+        data (np.ndarray): 2D array of Z-scored data (samples x features).
+    Returns:
+        None: Displays plot of Z-scored data and a histogram of the values on different axes.
+    """
+    # Histogram of all Z-scores plotted by batch variable
+    import matplotlib.pyplot as plt
+    import matplotlib.gridspec as gridspec
+    import numpy as np
+    from matplotlib.figure import Figure
+    from scipy import stats
+
+    # ---- Validation ----
+    if not isinstance(data, np.ndarray):
+        raise ValueError("data must be a NumPy array.")
+    if data.ndim != 2:
+        raise ValueError("data must be a 2D array (samples x features).")
+    if not isinstance(batch, np.ndarray):
+        if isinstance(batch, list):
+            batch = np.array(batch)
+        else:
+            raise ValueError("batch must be a NumPy array or a list.")
+    
+    # Sort data by batch, batch can either be numeric or string labels here:
+    sorted_indices = np.argsort(batch)
+    sorted_data = data[sorted_indices, :]
+    sorted_batch = batch[sorted_indices]
+    unique_batches, batch_counts = np.unique(sorted_batch, return_counts=True)  
+    # Create figure with gridspec
+    fig = plt.figure(figsize=(14, 8))
+    # Loop over unique batches and plot as histogram on same axis:
+    ax1 = fig.add_subplot()
+    if probablity_distribution==True:
+        plot_type = 'density'
+    else:
+        plot_type = 'frequency'
+
+
+    for i in np.unique(batch):
+        batch_data = data[batch == i, :].flatten()
+
+        ax1.hist(batch_data, bins=80, density=plot_type, alpha=0.5, label=str(i))
+        # Draw an estimated normal distribution curve over histogram:
+        if draw_PDF==True:
+            mu, std = np.mean(batch_data), np.std(batch_data)
+            xmin, xmax = ax1.get_xlim()
+            x = np.linspace(xmin, xmax, 100)
+            p = stats.norm.pdf(x, mu, std)
+            ax1.plot(x, p, linewidth=2)
+
+    ax1.set_xlabel(plot_type)
+    ax1.invert_xaxis()
+    ax1.yaxis.tick_right()
+    ax1.yaxis.set_label_position("right")
+    ax1.legend(title="Batch")
+    fig2 = plt.figure(figsize=(14, 8))
+    ax2 = fig2.add_subplot()
+    im = ax2.imshow(sorted_data.T, aspect='auto', cmap='viridis', interpolation='nearest')
+    ax2.set_xlabel("Samples (sorted by batch)")
+    ax2.set_ylabel("Features")
+    ax2.set_title("Z-scored Data Heatmap")
+    # Add batch seperators:
+    batch_start = 0
+    for count in batch_counts:
+        batch_start += count
+        ax2.axvline(x=batch_start - 0.5, color='black', linestyle='--', linewidth=1)
+    fig.colorbar(im, ax=ax2, orientation='vertical', label='Z-score')
+    figs = []
+    figs.append(("Z-score histogram", fig))
+    figs.append(("Z-score heatmap", fig2))
+    return figs
+
+@rep_plot_wrapper
 def Cohens_D_plot(
     cohens_d: np.ndarray,
     pair_labels: list,
@@ -437,7 +531,7 @@ def PC_corr_plot(
 
     return figs
 @rep_plot_wrapper
-def pc_clustering_diagnostics(
+def pc_clustering_plot(
     PrincipleComponents,
     batch,
     covariates=None,
@@ -803,23 +897,12 @@ def mahalanobis_distance_plot(results: dict,
     return fig, axes
 
 """----------------------------------------------------------------------------------------------------------------------------"""
-"""---------------------------------------- Plotting functions for Two-sample Kolmogorov-Smirnov test ----------------------------------"""
-"""----------------------------------------------------------------------------------------------------------------------------"""
-
-
-"""----------------------------------------------------------------------------------------------------------------------------"""
 """---------------------------------------- Plotting functions for Mixed effects model ----------------------------------"""
 """----------------------------------------------------------------------------------------------------------------------------"""
-@rep_plot_wrapper
-def mixed_effect_model_plot(results: dict, feature_names: list):
-    """
-    Plot the output of the mixed effects model as ordered plots of the -log10 p-values for each feature.
-    Args:
-        results (dict): Output from MixedEffectsModel(...)
-        feature_names (list): List of feature names corresponding to the p-values.
-    Returns:
-        (fig, axes): The matplotlib Figure and dict of axes.
-    """
+
+"""----------------------------------------------------------------------------------------------------------------------------"""
+"""---------------------------------------- Plotting functions for Two-sample Kolmogorov-Smirnov test ----------------------------------"""
+"""----------------------------------------------------------------------------------------------------------------------------"""
 
 def KS_plot(ks_results: dict,
              feature_names: list = None,

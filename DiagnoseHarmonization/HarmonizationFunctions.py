@@ -107,8 +107,7 @@ def itSol(sdat_batch, gamma_hat, delta_hat, gamma_bar, t2, a, b, conv=0.001):
     return np.vstack([g_new, d_new])
 
 # ----------------------------- Main function -----------------------------
-
-def combat_modified(dat, batch, mod, parametric,
+def combat(dat, batch, mod, parametric,
                     DeltaCorrection=True, UseEB=True, ReferenceBatch=None,
                     RegressCovariates=False, GammaCorrection=True):
     """
@@ -399,7 +398,6 @@ def combat_modified(dat, batch, mod, parametric,
     return bayesdata, delta_star, gamma_star
 
 # Define harmonization via mixed effects model (Regression analysis)
-
 def lme_harmonization(data, batch, covariates, variable_names):
 
     # The function here is identical to that included in the DiagnosticFunctions.py file in methodology, but the 

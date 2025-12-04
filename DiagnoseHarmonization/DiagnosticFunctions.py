@@ -1,17 +1,226 @@
-import argparse
+# DiagnosticFunctions.py
+# Collection of diagnostic functions for harmonization assessment (pre and post)
+
+import warnings
+from collections import Counter
 import numpy as np
 import pandas as pd
+import statsmodels.api as sm
+from statsmodels.formula.api import mixedlm
+from scipy.stats import chi2
+import argparse
 from sklearn.decomposition import PCA
 from scipy.stats import pearsonr
 
+"""
+    Collection of statistical functions to assess and visualise batch effects in tabular data.
+    Functions include:
+    - Cohens_D: Calculate Cohen's d effect size between batches for each feature.
+    - Mahalanobis_Distance: Calculate Mahalanobis distance between batches.
+    - PC_Correlations: Perform PCA and correlate top PCs with batch and covariates.
+    - fit_lmm_safe: Robustly fit a Linear Mixed Model with fallbacks and diagnostics.
+    - Variance_Ratios: Calculate variance ratios between batches for each feature.
+    - KS_Test: Performs two-sample Kolmogorov-Smirnov test between batches for each feature.
+
+
+
+"""
+
+def fit_lmm_safe(df, formula_fixed, group_col='batch', reml=False,
+                 min_group_n=10, var_threshold=1e-8,
+                 optimizers=('lbfgs', 'bfgs', 'powell', 'cg'),
+                 maxiter=400):
+    """
+    Robust wrapper to fit a MixedLM to df for a single feature 'y'.
+
+    Behavior:
+      - If feature variance < var_threshold, returns success=False and notes include 'low_variance_feature'.
+      - If any batch count < min_group_n, falls back to OLS (notes include 'small_group_count').
+      - Scales numeric covariates (center+unit-std) to stabilize optimization.
+      - Tries multiple optimizers. On success returns model results and computed stats.
+      - On complete failure returns fallback OLS if possible, else None results.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing 'y' and covariates.
+        formula_fixed (str): Patsy formula for fixed effects (excluding random effects).
+        group_col (str): Column name for grouping variable (random effect).
+        reml (bool): Whether to use REML for LMM fitting.
+        min_group_n (int): Minimum samples per group to attempt LMM.
+        var_threshold (float): Minimum variance threshold to attempt LMM.
+        optimizers (tuple): Optimizers to try for LMM fitting.
+        maxiter (int): Maximum iterations for optimizer.
+    Returns a dict:
+        {
+          'success': bool,         # True if LMM fit succeeded
+          'mdf': MixedLMResults or None,
+          'ols': OLSResults or None,  # fallback OLS fit for fixed part (if available)
+          'notes': list[str],      # short tokens describing what happened
+          'stats': dict            # summary values (var_fixed, var_batch, var_resid, R2_marginal, R2_conditional, ICC, LR_stat, pval_LRT)
+        }
+
+    """
+    notes = []
+    n = df.shape[0]
+    if 'y' not in df.columns:
+        raise ValueError("df must contain column 'y'.")
+    # 1) low-variance check
+    if np.nanvar(df['y']) <= var_threshold:
+        notes.append('low_variance_feature')
+        return {'success': False, 'mdf': None, 'ols': None, 'notes': notes, 'stats': {}}
+
+    # 2) check minimal group sizes
+    group_counts = df[group_col].value_counts()
+    if (group_counts < min_group_n).any():
+        notes.append('small_group_count')
+        # Attempt OLS on fixed effects only and return as fallback
+        try:
+            import patsy
+            y_vec, X = patsy.dmatrices(formula_fixed, df, return_type='dataframe')
+            ols_res = sm.OLS(y_vec, X).fit()
+            notes.append('fallback_ols_used')
+            stats = {
+                'var_fixed': float(np.nanvar(np.dot(X.values, ols_res.params.values), ddof=0)),
+                'var_batch': 0.0,
+                'var_resid': float(ols_res.mse_resid),
+                'R2_ols_fixed': float(ols_res.rsquared)
+            }
+            return {'success': False, 'mdf': None, 'ols': ols_res, 'notes': notes, 'stats': stats}
+        except Exception as e:
+            notes.append('fallback_ols_failed')
+            return {'success': False, 'mdf': None, 'ols': None, 'notes': notes, 'stats': {}}
+
+    # 3) scale numeric covariates (help optimizers)
+    for col in df.columns:
+        if col in (group_col, 'y'):
+            continue
+        if pd.api.types.is_numeric_dtype(df[col]):
+            m = df[col].mean()
+            s = df[col].std(ddof=0)
+            if s == 0:
+                df[col] = df[col] - m
+            else:
+                df[col] = (df[col] - m) / s
+
+    # 4) try mixed model with multiple optimizers
+    md = mixedlm(formula_fixed, groups=group_col, data=df, re_formula="1")
+    last_exc = None
+    for opt in optimizers:
+        try:
+            mdf = md.fit(reml=reml, method=opt, maxiter=maxiter, disp=False)
+            # check convergence attribute when available
+            converged = getattr(mdf, 'converged', True)
+            if not converged:
+                notes.append(f'optimizer_{opt}_no_converge')
+                continue
+
+            # try to extract random variance (handle formats)
+            try:
+                cov_re = mdf.cov_re
+                # If cov_re is a DataFrame
+                cov_re_arr = np.asarray(cov_re)
+                # treat tiny elements as zero
+                if cov_re_arr.size > 0 and np.nanmax(np.abs(cov_re_arr)) <= 1e-10:
+                    notes.append('var_batch_near_zero')
+            except Exception:
+                notes.append('cov_re_inspect_failed')
+
+            # compute fixed-effects linear predictor variance
+            try:
+                exog = mdf.model.exog
+                fe_params = mdf.fe_params.values.reshape(-1, 1)
+                linpred_fixed = np.dot(exog, fe_params).ravel()
+                var_fixed = float(np.nanvar(linpred_fixed, ddof=0))
+            except Exception:
+                var_fixed = np.nan
+
+            # random intercept variance
+            try:
+                # Some statsmodels versions return a DataFrame or scalar
+                try:
+                    var_batch = float(mdf.cov_re.iloc[0, 0])
+                except Exception:
+                    var_batch = float(np.asarray(mdf.cov_re).ravel()[0])
+            except Exception:
+                var_batch = np.nan
+
+            # residual variance
+            try:
+                var_resid = float(mdf.scale)
+            except Exception:
+                var_resid = np.nan
+
+            # totals and R2-ish metrics (Nakagawa style for Gaussian)
+            total_var = var_fixed + (0.0 if np.isnan(var_batch) else var_batch) + var_resid
+            R2_marginal = var_fixed / total_var if total_var != 0 and not np.isnan(var_fixed) else np.nan
+            R2_conditional = (var_fixed + (0.0 if np.isnan(var_batch) else var_batch)) / total_var if total_var != 0 else np.nan
+            ICC = var_batch / (var_batch + var_resid) if (not np.isnan(var_batch) and (var_batch + var_resid) != 0) else np.nan 
+
+            # LRT vs fixed-only OLS
+            try:
+                # build OLS fixed-only design via patsy for the same formula
+                import patsy
+                y_vec, X_fixed = patsy.dmatrices(formula_fixed, df, return_type='dataframe')
+                ols_fixed = sm.OLS(y_vec, X_fixed).fit()
+                llf_lmm = float(mdf.llf)
+                llf_ols = float(ols_fixed.llf)
+                LR_stat = 2.0 * (llf_lmm - llf_ols)
+                pval_LRT = float(chi2.sf(LR_stat, 1)) if np.isfinite(LR_stat) else np.nan
+            except Exception:
+                LR_stat = np.nan
+                pval_LRT = np.nan
+
+            stats = {
+                'var_fixed': var_fixed,
+                'var_batch': var_batch,
+                'var_resid': var_resid,
+                'R2_marginal': R2_marginal,
+                'R2_conditional': R2_conditional,
+                'ICC': ICC,
+                'LR_stat': LR_stat,
+                'pval_LRT_random': pval_LRT
+            }
+
+            return {'success': True, 'mdf': mdf, 'ols': None, 'notes': notes, 'stats': stats}
+        except Exception as e:
+            last_exc = e
+            notes.append(f'optimizer_{opt}_failed')
+            continue
+
+    # 5) All LMM attempts failed -> fallback to OLS (try to return useful stats)
+    try:
+        import patsy
+        y_vec, X = patsy.dmatrices(formula_fixed, df, return_type='dataframe')
+        ols_res = sm.OLS(y_vec, X).fit()
+        stats = {
+            'var_fixed': float(np.nanvar(np.dot(X.values, ols_res.params.values), ddof=0)),
+            'var_batch': 0.0,
+            'var_resid': float(ols_res.mse_resid),
+            'R2_ols_fixed': float(ols_res.rsquared)
+        }
+        notes.append('all_lmm_optimizers_failed_fallback_ols')
+        return {'success': False, 'mdf': None, 'ols': ols_res, 'notes': notes, 'stats': stats}
+    except Exception:
+        notes.append('all_lmm_and_ols_failed')
+        return {'success': False, 'mdf': None, 'ols': None, 'notes': notes, 'stats': {}}
+
 # ------------------ Diagnostic Functions ------------------
 # Cohens D function calculates the effect size between two groups for each feature.
-
 import numpy as np
 from itertools import combinations
 # Cohens d function calculates the effect size between two groups for each feature.
 import numpy as np
 from itertools import combinations
+
+def z_score(data):
+    """
+    Z-score normalization of the data matrix (samples x features).
+    Use median centered by default as is more robust to outliers and non-normal distributions.
+    """
+    median = np.median(data, axis=0)
+    std = np.std(data, axis=0, ddof=1)
+    zscored = (data - median) / std
+    return zscored
+    
 
 def Cohens_D(Data, batch_indices, BatchNames=None):
     """
@@ -81,8 +290,8 @@ def Cohens_D(Data, batch_indices, BatchNames=None):
         pairwise_d.append(d)
         pair_labels.append((BatchNames_map[g1], BatchNames_map[g2]))
     
-    # Calculate Cohen's d for each batch and the overall mean
-    overall_mean = np.mean(Data, axis=0)
+    # Calculate Cohen's d for each batch and the overall mean (Commented out below section as likely uneeded and will clutter report)
+    """overall_mean = np.mean(Data, axis=0)
     for g in unique_groups:
         mask = batch_indices == g
         data_g = Data[mask, :]
@@ -96,20 +305,14 @@ def Cohens_D(Data, batch_indices, BatchNames=None):
             d = np.where(np.isnan(d), 0.0, d)  # replace NaNs with 0
 
         pairwise_d.append(d)
-        pair_labels.append((BatchNames_map[g], 'Overall'))
+        pair_labels.append((BatchNames_map[g], 'Overall'))"""
 
     # Convert to numpy array (shape: num_features x num_pairs) and transpose
     
     return np.array(pairwise_d), pair_labels
 
-# PcaCorr performs PCA on data and computes Pearson correlation of the top N principal components with a batch variable.
-import numpy as np
-import pandas as pd
-import warnings
-from sklearn.decomposition import PCA
-from scipy.stats import pearsonr
-
-def PcaCorr(
+# PC_Correlations performs PCA on data and computes Pearson correlation of the top N principal components with a batch variable.
+def PC_Correlations(
     Data,
     batch,
     N_components=None,
@@ -152,6 +355,11 @@ def PcaCorr(
     pca : sklearn.decomposition.PCA
         The fitted PCA object (useful for components_, explained_variance_ratio_, ...)
     """
+    import numpy as np
+    import pandas as pd
+    import warnings
+    from sklearn.decomposition import PCA
+    from scipy.stats import pearsonr
     # --- Input checks & normalization ---
     if not isinstance(Data, np.ndarray) or Data.ndim != 2:
         raise ValueError("Data must be a 2D numpy array (samples x features).")
@@ -253,7 +461,7 @@ def PcaCorr(
     return explained_variance, scores, PC_correlations, pca
 
 # MahalanobisDistance computes the Mahalanobis distance (multivariate difference between batch and global centroids)
-def MahalanobisDistance(Data=None, batch=None, covariates=None):
+def Mahalanobis_Distance(Data=None, batch=None, covariates=None):
 
     """
     Calculate the Mahalanobis distance between batches in the data.
@@ -367,62 +575,9 @@ def MahalanobisDistance(Data=None, batch=None, covariates=None):
         "centroid_resid": centroid_resid,
         "batches": unique_batches.tolist(),
     }
-# Mixed effect model including cross terms with batch and covariates
-def mixed_effect_interactions(data,batch,covariates,variable_names):
 
-    """
-    Make mixed effect model including cross terms with batch and covariates,
-
-    Parameters: 
-        - Data: subjects x features (np.ndarray)
-        - batch: subjects x 1 (np.ndarray), batch labels
-        - covariates:  subjects x covariates (np.ndarray)
-        - variable_names: covariates (list)
-    Returns:
-        - LME model results object
-    Raises:
-    - ValueError: if Data is not a 2D array or batch is not a
-    1D array, or if the number of samples in Data and batch do not match.
-    - ValueError: if covariates is not None and not a 2D array
-    - ValueError: if variable_names is not None and does not match the number of variables
-    """
-    # Count the number of unique groups in the batch
-    
-    if not isinstance(data, np.ndarray) or data.ndim != 2:
-        raise ValueError("Data must be a 2D numpy array (samples x features).")
-    if not isinstance(batch, (list, np.ndarray)) or np.ndim(batch) != 1:
-        raise ValueError("group_indices must be a 1D list or numpy array.")
-    
-    # Define the mixed effects model as Y = X*beta + e + Z*b
-    # Where Y is the data, X is the design matrix, beta are the fixed effects
-    # e is the residual error, Z is the random effects design matrix and b are the
-    # random effects coefficients
-
-    import pandas as pd
-    import statsmodels.api as sm
-    from statsmodels.formula.api import mixedlm
-    import patsy
-    import numpy as np
-    import itertools
-    import warnings
-    warnings.filterwarnings("ignore")
-    df = pd.DataFrame(data)
-    df['batch'] = batch
-    for i,var in enumerate(variable_names):
-        df[var] = covariates[:,i]
-    # Create interaction terms
-    interaction_terms = []
-    for var in variable_names:
-        interaction_terms.append(f'batch:{var}')
-    interaction_str = ' + '.join(interaction_terms)
-    # Create the formula for the mixed effects model
-    formula = f'Q("0") ~ batch + {" + ".join(variable_names)} + {interaction_str}'
-    # Fit the mixed effects model
-    model = mixedlm(formula, df, groups=df['batch'])
-    result = model.fit()
-    return result  
 # Define a function to calculate the feature-wise ratio of variance between each unique batch pair
-def Variance_ratios(data, batch, covariates=None):
+def Variance_Ratios(data, batch, covariates=None):
     # Define a function to calculate the feature-wise ratio of variance between each unique batch pair
     import numpy as np
     import pandas as pd
@@ -461,9 +616,10 @@ def Variance_ratios(data, batch, covariates=None):
             ratio[np.isnan(ratio)] = 0  # Replace NaNs due to division by zero
         ratio_of_variance[(b1, b2)] = ratio
     return ratio_of_variance
+
 # Define a function to perform two-sample Kolmogorov-Smirnov test for distribution differences between
 # each unique batch pair and each batch with the overall distribution
-def KS_test(data,
+def KS_Test(data,
                 batch,
                 feature_names=None,
                 compare_pairs=True,
@@ -645,7 +801,7 @@ def KS_test(data,
     return ks_results
 
 # Define a function to perform the Levene's test for variance differences between each unique batch pair
-def Levene_test(data, batch, centre = 'median'):
+def Levene_Test(data, batch, centre = 'median'):
     # Define a function to perform the Levene's test for variance differences between each unique batch pair
     """
     Args: data
@@ -691,11 +847,89 @@ def Levene_test(data, batch, centre = 'median'):
         }
     return levene_results
 
+# Function to fit LMM safely with fallbacksdef fit_lmm_safe(df, formula_fixed, group_col, min_group_n=2, var_threshold=1e-8):
+def Run_LMM(Data, batch, covariates=None, feature_names=None, group_col_name='batch',
+                  covariate_names=None, min_group_n=2, var_threshold=1e-8):
+    """
+    Runs LMM diagnostics for each feature and returns (results_df, summary).
+    results_df columns: feature, success, var_fixed, var_batch, var_resid, R2_marginal, R2_conditional, ICC, notes
+    summary: Counter of notes + counts
+    """
+    import numpy as np
+    import pandas as pd
+    import warnings
+    from statsmodels.formula.api import mixedlm, ols
+    import statsmodels.api as sm
+    from scipy.stats import chi2
+    import matplotlib.pyplot as plt
+
+    Data = np.asarray(Data, dtype=float)
+    n, p = Data.shape
+    if feature_names is None:
+        feature_names = [f'feature_{i+1}' for i in range(p)]
+    if len(feature_names) != p:
+        raise ValueError("feature_names length mismatch.")
+
+    # Build base DataFrame for model inputs
+    df_base = pd.DataFrame({group_col_name: np.asarray(batch)})
+    if covariates is not None:
+        if isinstance(covariates, pd.DataFrame):
+            cov_df = covariates.reset_index(drop=True)
+        else:
+            cov_arr = np.asarray(covariates)
+            if cov_arr.ndim == 1:
+                cov_df = pd.DataFrame({covariate_names[0] if covariate_names else 'cov1': cov_arr})
+            else:
+                names = covariate_names if covariate_names else [f'cov{i+1}' for i in range(cov_arr.shape[1])]
+                cov_df = pd.DataFrame(cov_arr, columns=names)
+        df_base = pd.concat([df_base, cov_df], axis=1)
+
+    # build formula (fixed part)
+    if covariates is not None and cov_df.shape[1] > 0:
+        rhs = ' + '.join(list(cov_df.columns))
+        formula_fixed = f"y ~ {rhs}"
+    else:
+        formula_fixed = "y ~ 1"
+
+    rows = []
+    notes_counter = Counter()
+    for fi in range(p):
+        df = df_base.copy()
+        df['y'] = Data[:, fi]
+        res = fit_lmm_safe(df, formula_fixed, group_col=group_col_name,
+                           min_group_n=min_group_n, var_threshold=var_threshold)
+        stats = res.get('stats', {})
+        notes = res.get('notes', []) or []
+        # ensure consistent fields
+        row = {
+            'feature': feature_names[fi],
+            'success': bool(res.get('success', False)), # did LMM fit succeed?
+            'var_fixed': stats.get('var_fixed', np.nan), # Variance explained by fixed effects
+            'var_batch': stats.get('var_batch', np.nan), # Variance explained by batch random effect
+            'var_resid': stats.get('var_resid', np.nan), # Residual variance
+            'R2_marginal': stats.get('R2_marginal', np.nan), # Marginal R-squared (fixed effects)
+            'R2_conditional': stats.get('R2_conditional', np.nan), # Conditional R-squared (fixed + random effects)
+            'ICC': stats.get('ICC', np.nan), # Intraclass correlation coefficient (batch variance / total variance)
+            'LR_stat': stats.get('LR_stat', np.nan),
+            'pval_LRT_random': stats.get('pval_LRT_random', np.nan),
+            'notes': ';'.join(notes)
+        }
+        rows.append(row)
+        for ntag in notes:
+            notes_counter[ntag] += 1
+        # also tag success vs fallback
+        notes_counter['succeeded_LMM' if res.get('success', False) else 'used_fallback'] += 1
+
+    results_df = pd.DataFrame(rows)
+    summary = dict(notes_counter)
+    summary['n_features'] = p
+    return results_df, summary
 
 """
 ------------------ CLI Help Only Setup ------------------
  Help functions are set up to provide descriptions of the available functions without executing them.
 """
+# call the help functions for each diagnostic function, for example in terminal use `python DiagnosticFunctions.py -h Cohens_D`
 def setup_help_only_parser():
     parser = argparse.ArgumentParser(
         prog='DiagnosticFunctions',
@@ -770,7 +1004,7 @@ def setup_help_only_parser():
 
     parser_variance_ratios = subparsers.add_parser(
 
-        'Variance_ratios',
+        'Variance_Ratios',
         help='Calculate variance ratios between batches',
         description="""
         Calculates the feature-wise ratio of variance between each unique batch pair,
@@ -783,7 +1017,7 @@ def setup_help_only_parser():
         '''
     )
     parser_ks_test = subparsers.add_parser(
-        'KS_test',
+        'KS_Test',
         help='Perform KS test between batches',
         description="""
         Performs two-sample Kolmogorov-Smirnov test for distribution differences between
@@ -796,7 +1030,7 @@ def setup_help_only_parser():
         '''
     )
     parser_levene_test = subparsers.add_parser(
-        'Levene_test',
+        'Levene_Test',
         help='Perform Levene\'s test between batches',
         description="""
         Performs Levene's test for variance differences between each unique batch pair.
@@ -805,6 +1039,19 @@ def setup_help_only_parser():
         Example usage:
         DiagnosticFunctions.Levene_test --Data <data.npy> --batch <batch.npy>
         Returns a dictionary with Levene's test statistics and p-values for each pair of batches.
+        '''
+    )
+    parser_run_lmm = subparsers.add_parser(
+        'Run_LMM',
+        help='Run linear mixed model diagnostics',
+        description="""
+        Runs linear mixed model diagnostics for each feature in the data,
+        returning variance components, R-squared values, ICC, and fitting notes.
+        """,
+        epilog = '''
+        Example usage:
+        DiagnosticFunctions.run_lmm --Data <data.npy> --batch <batch.npy>
+        Returns a DataFrame with LMM diagnostics for each feature.
         '''
     )
 

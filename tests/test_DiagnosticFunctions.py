@@ -9,7 +9,9 @@ def test_cohens_d():
     group = np.random.rand(10,100)
     batch = np.array([0,0,0,0,0,1,1,1,1,1])
     a,b = DiagnosticFunctions.Cohens_D(group, batch)
-    assert np.size(a) ==100
+
+    assert type(a) == np.ndarray
+    assert type(b) == list
 
 def test_pca_corr():
     # Create a sample dataset
@@ -21,7 +23,7 @@ def test_pca_corr():
     batch[80:99] = batch[80:99] + 4
 
     # Call the PCA correlation function
-    explained_variance, score, batchPCcorr = DiagnosticFunctions.PcaCorr(X, batch)
+    explained_variance, score, batchPCcorr, pca_ = DiagnosticFunctions.PC_Correlations(X, batch)
 
     # Check the shape of the results
     assert score.shape == (100, 4)  # Score should have the same number of samples as X
