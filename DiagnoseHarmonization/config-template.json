@@ -1,0 +1,11 @@
+{
+  "input": ["/Users/psyc1586_admin/GVB_data/harmonisation_work/00_python_scripts/HarmonisationTool/tests/test_full/Raw.csv", "/Users/psyc1586_admin/GVB_data/harmonisation_work/00_python_scripts/HarmonisationTool/tests/test_full/LME_IQM.csv"],
+  "output": ["results"],
+  "subject": "subjectID",
+  "fixeff": ["Final_Age", "timepoint"],
+  "zscore_fixeff": ["Final_Age"],
+  "raneff": "subjectID",
+  "batch": "Site",
+  "start_col":7,
+  "end_col": 13
+}
