@@ -1,5 +1,5 @@
 {
-  "input": ["/Users/psyc1586_admin/GVB_data/harmonisation_work/00_python_scripts/HarmonisationTool/tests/test_full/Raw.csv", "/Users/psyc1586_admin/GVB_data/harmonisation_work/00_python_scripts/HarmonisationTool/tests/test_full/LME_IQM.csv"],
+  "input": ["/path/to/file/Raw.csv", "/path/to/file/Harmonised.csv"],
   "output": ["results"],
   "subject": "subjectID",
   "fixeff": ["Final_Age", "timepoint"],

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-plot_scripts_test.py  (updated)
+PlotDiagnosticResults.py  (updated)
 
 Improved combined plotting for multiple 'results' directories produced by your pipeline.
 - Normalizes IDP/site/timepair names and aligns data by name (not order).
@@ -10,7 +10,7 @@ Improved combined plotting for multiple 'results' directories produced by your p
 - Saves combined PNGs into outdir.
 
 Usage example:
-python plot_scripts_test.py --dirs results1 results2 --outdir combined_plots --fix_eff age sex
+python PlotDiagnosticResults.py --dirs results1 results2 --outdir combined_plots --fix_eff age sex
 """
 from __future__ import annotations
 import os, re, json, argparse

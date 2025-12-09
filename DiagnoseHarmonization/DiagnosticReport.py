@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-create_plotting_report.py
+DiagnosticReport.py
 
 Build HTML report with large inline PNGs (no interactive pages).
 
 Usage:
-python create_plotting_report.py --dir combined_plots --outdir combined_plots/report --fix_eff age sex
+python DiagnosticReport.py --dir combined_plots --outdir combined_plots/report --fix_eff age sex
 
 Dependencies:
     pip install pandas pillow numpy

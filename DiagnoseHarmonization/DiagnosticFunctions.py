@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-diagnosticfunctions.py
+DiagnosticFunctions.py
 
 Unified pipeline that runs:
  - WSV (within-subject variability)
@@ -10,7 +10,7 @@ Unified pipeline that runs:
  - Additive & Multiplicative batch tests (add_test, mult_test)
 
 See help:
-python diagnosticfunctions.py -h
+python DiagnosticFunctions.py -h
  """
 
 from __future__ import annotations

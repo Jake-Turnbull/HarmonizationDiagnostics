@@ -164,7 +164,7 @@ def main():
 
     # 1) Run diagnosticfunctions per input
     for inp, outdir in zip(input_paths, per_outputs):
-        cmd = ["python", "diagnosticfunctions.py",
+        cmd = ["python", "DiagnosticFunctions.py",
                "--input", str(inp),
                "--subject", args.subject,
                "--fixeff"] + [str(x) for x in args.fixeff] + \
@@ -191,12 +191,12 @@ def main():
         run_cmd(cmd, verbose=verbose)
 
     # 2) Run getPlots once over all per-output dirs -> comparison_plots
-    getplots_cmd = ["python", "getPlots.py", "--dirs"] + [str(p) for p in per_outputs] + \
+    getplots_cmd = ["python", "PlotDiagnosticResults.py", "--dirs"] + [str(p) for p in per_outputs] + \
                    ["--outdir", str(comparison_dir), "--fixeff"] + [str(x) for x in args.fixeff]
     run_cmd(getplots_cmd, verbose=verbose)
 
     # 3) Run getReport once with comparison_plots dir and inputs list for header
-    getreport_cmd = ["python", "getReport.py",
+    getreport_cmd = ["python", "DiagnosticReport.py",
                      "--dir", str(comparison_dir),
                      "--outdir", str(report_dir),
                      "--fixeff"] + [str(x) for x in args.fixeff] + \
