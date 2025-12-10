@@ -1,0 +1,10 @@
+{
+  "input": ["/Users/psyc1586_admin/HarmonisationTool/Raw.csv", "/Users/psyc1586_admin/HarmonisationTool/LME_IQM.csv"],
+  "output": ["results"],
+  "subject": "subjectID",
+  "fixeff": ["Final_Age", "timepoint"],
+  "zscore_fixeff": ["Final_Age"],
+  "raneff": "subjectID",
+  "batch": "Site",
+  "finalidplist":["T1_SIENAX_brain_norm_vol", "T1_FIRST_left_hippocampus"]
+}

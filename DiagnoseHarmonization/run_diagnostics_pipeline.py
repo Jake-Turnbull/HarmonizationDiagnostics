@@ -8,6 +8,7 @@ run_diagnostics_pipeline.py — subprocess-based pipeline with finalidplist fix
 - Supports CLI or JSON config (--config). CLI overrides config.
 - Fix: if finalidplist is a Python list, it's json.dumps()-ed before calling subprocess.
 """
+import os
 import argparse
 import json
 import subprocess
@@ -154,6 +155,17 @@ def main():
     report_dir = Path(args.report_outdir) if args.report_outdir else comparison_dir
     report_dir.mkdir(parents=True, exist_ok=True)
 
+    # inspection dir
+    if args.output:                   # user supplied something like --output /path/to/out
+        base_out = Path(args.output[0])
+    else:                             # no output provided → use current working directory
+        base_out = Path(os.getcwd())
+    # Ensure base directory exists
+    base_out.mkdir(parents=True, exist_ok=True)
+    # Create the "inspect" directory inside it
+    inspect_dir = base_out / "inspect"
+    inspect_dir.mkdir(parents=True, exist_ok=True)
+
     if verbose:
         print("Config (if any):", cfg or "<none>")
         print("Final merged args:")
@@ -203,7 +215,72 @@ def main():
                     ["--inputs"] + [str(p) for p in input_paths]
     run_cmd(getreport_cmd, verbose=verbose)
 
+    # 4) Run data inspection pipeline
+    # normalize input_paths to Path objects then to strings
+    input_paths = [Path(p) for p in input_paths]  # if already Paths this is harmless
+    input_args = [str(p) for p in input_paths]
+
+    # normalize batch
+    batch_arg = str(args.batch) if getattr(args, "batch", None) else None
+
+    # normalize bio vars (args.fixeff in your code)
+    fixeff = getattr(args, "fixeff", None)
+    bio_vars_arg = None
+    if fixeff:
+        if isinstance(fixeff, (list, tuple)):
+            bio_vars_arg = ",".join(str(x) for x in fixeff)
+        else:
+            parts = [s for s in str(fixeff).replace(",", " ").split() if s]
+            bio_vars_arg = ",".join(parts)
+
+
+    # normalize features (finalid_arg may be JSON string or plain string)
+    def normalize_features(features_arg):
+        if features_arg is None:
+            return None
+        if isinstance(features_arg, (list, tuple)):
+            return ",".join(map(str, features_arg))
+        # if it's a string, try to parse JSON list, otherwise use as-is
+        s = str(features_arg)
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, (list, tuple)):
+                return ",".join(map(str, parsed))
+            # if parsed to non-list, fall back to original string
+        except Exception:
+            pass
+        return s
+
+    features_spec = normalize_features(finalid_arg)
+
+    # build the command as a flat list
+    getinspect_cmd = ["python", "DataInspection.py"] + input_args
+
+    if batch_arg:
+        getinspect_cmd += ["--batch_vars", batch_arg]
+
+    if bio_vars_arg:
+        # DataInspection appears to accept multiple bio vars (nargs='+'), so pass them separately
+        getinspect_cmd += ["--bio_vars", bio_vars_arg]
+
+    if features_spec:
+        getinspect_cmd += ["--features", features_spec]
+
+    if getattr(args, "subject", None):
+        getinspect_cmd += ["--subject_id", str(args.subject)]
+
+    # ensure inspect_dir is string
+    getinspect_cmd += ["--output_dir", str(inspect_dir)]
+
+    # add flags you want (toggle if you prefer conditional)
+    getinspect_cmd += ["--report", "--embed_images"]
+
+    # debug print (flat list)
+    print(getinspect_cmd)
+    run_cmd(getinspect_cmd, verbose=verbose)
+
     print("\n✅ Pipeline finished.")
+    print("Inspection output:", inspect_dir)
     print("Comparison plots:", comparison_dir)
     print("Report output:", report_dir)
 
